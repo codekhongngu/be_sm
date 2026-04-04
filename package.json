@@ -13,6 +13,8 @@
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
+    "cf:deploy:dry": "npx wrangler deploy --dry-run",
+    "cf:deploy": "npx wrangler deploy",
     "db:init:schema": "node -r dotenv/config scripts/run-sql.js sql/init/001_init_schema.sql",
     "db:init:seed": "node -r dotenv/config scripts/run-sql.js sql/init/002_seed_admin.sql",
     "db:init": "npm run db:init:schema && npm run db:init:seed",
