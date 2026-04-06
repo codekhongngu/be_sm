@@ -3,16 +3,22 @@ const getCorsHeaders = (request: Request): Record<string, string> => ({
   "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
   "access-control-allow-headers":
     request.headers.get("access-control-request-headers") || "content-type,authorization",
+  "access-control-expose-headers": "content-type,authorization",
   "access-control-max-age": "86400",
   vary: "origin, access-control-request-headers",
 });
+
+const responseSecurityHeaders = {
+  "referrer-policy": "no-referrer",
+  "cross-origin-resource-policy": "cross-origin",
+};
 
 const json = (request: Request, data: unknown, status = 200): Response =>
   new Response(JSON.stringify(data), {
     status,
     headers: {
       "content-type": "application/json; charset=utf-8",
-      "referrer-policy": "no-referrer",
+      ...responseSecurityHeaders,
       ...getCorsHeaders(request),
     },
   });
@@ -161,7 +167,9 @@ const parseJson = async <T>(request: Request): Promise<T | null> => {
 
 const withCorsHeaders = (request: Request, response: Response): Response => {
   const headers = new Headers(response.headers);
-  headers.set("referrer-policy", "no-referrer");
+  for (const key of Object.keys(responseSecurityHeaders)) {
+    headers.set(key, responseSecurityHeaders[key]);
+  }
   const cors = getCorsHeaders(request);
   for (const key of Object.keys(cors)) {
     headers.set(key, cors[key]);
@@ -217,7 +225,7 @@ export default {
       return new Response(null, {
         status: 204,
         headers: {
-          "referrer-policy": "no-referrer",
+          ...responseSecurityHeaders,
           ...getCorsHeaders(request),
         },
       });
