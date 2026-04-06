@@ -7,17 +7,23 @@ import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
-  const allowedOrigins = process.env.FE_ORIGIN?.split(',').map((item) => item.trim()) || [
-    'http://localhost:5173',
-    'http://localhost:3000',
-  ];
+  const allowedOrigins =
+    process.env.FE_ORIGIN?.split(',')
+      .map((item) => item.trim().replace(/\/+$/g, ''))
+      .filter(Boolean) || ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:3001'];
+  const strictCors = process.env.CORS_STRICT === 'true';
   app.enableCors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (!origin) {
         callback(null, true);
         return;
       }
-      callback(new Error('Not allowed by CORS'));
+      const normalizedOrigin = origin.replace(/\/+$/g, '');
+      if (!strictCors || allowedOrigins.includes(normalizedOrigin)) {
+        callback(null, true);
+        return;
+      }
+      callback(null, false);
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
