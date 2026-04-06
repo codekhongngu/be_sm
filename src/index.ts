@@ -1,15 +1,19 @@
-const corsHeaders = {
-  "access-control-allow-origin": "*",
-  "access-control-allow-methods": "GET,POST,OPTIONS",
-  "access-control-allow-headers": "content-type,authorization",
-};
+const getCorsHeaders = (request: Request): Record<string, string> => ({
+  "access-control-allow-origin": request.headers.get("origin") || "*",
+  "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+  "access-control-allow-headers":
+    request.headers.get("access-control-request-headers") || "content-type,authorization",
+  "access-control-max-age": "86400",
+  vary: "origin, access-control-request-headers",
+});
 
-const json = (data: unknown, status = 200): Response =>
+const json = (request: Request, data: unknown, status = 200): Response =>
   new Response(JSON.stringify(data), {
     status,
     headers: {
       "content-type": "application/json; charset=utf-8",
-      ...corsHeaders,
+      "referrer-policy": "no-referrer",
+      ...getCorsHeaders(request),
     },
   });
 
@@ -18,15 +22,21 @@ export default {
     const url = new URL(request.url);
 
     if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: corsHeaders });
+      return new Response(null, {
+        status: 204,
+        headers: {
+          "referrer-policy": "no-referrer",
+          ...getCorsHeaders(request),
+        },
+      });
     }
 
     if (request.method === "GET" && url.pathname === "/health") {
-      return json({ status: "ok" });
+      return json(request, { status: "ok" });
     }
 
     if (request.method === "GET" && url.pathname === "/auth/login") {
-      return json({ message: "Method Not Allowed. Use POST /auth/login" }, 405);
+      return json(request, { message: "Method Not Allowed. Use POST /auth/login" }, 405);
     }
 
     if (request.method === "POST" && url.pathname === "/auth/login") {
@@ -34,14 +44,14 @@ export default {
       try {
         body = (await request.json()) as { username?: unknown; password?: unknown };
       } catch (error) {
-        return json({ message: "Body JSON không hợp lệ" }, 400);
+        return json(request, { message: "Body JSON không hợp lệ" }, 400);
       }
 
       const username = typeof body.username === "string" ? body.username : "";
       const password = typeof body.password === "string" ? body.password : "";
 
       if (username !== "admin" || password !== "Admin@123") {
-        return json({ message: "Sai tài khoản hoặc mật khẩu" }, 401);
+        return json(request, { message: "Sai tài khoản hoặc mật khẩu" }, 401);
       }
 
       const user = {
@@ -53,12 +63,12 @@ export default {
         fullName: "System Admin",
       };
 
-      return json({
+      return json(request, {
         accessToken: `worker-${crypto.randomUUID()}`,
         user,
       });
     }
 
-    return json({ message: "Not Found" }, 404);
+    return json(request, { message: "Not Found" }, 404);
   },
 };
