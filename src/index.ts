@@ -47,9 +47,53 @@ type Env = {
   NEST_API_ORIGIN?: string;
 };
 
+type LocalAccount = {
+  username: string;
+  password: string;
+  user: UserPayload;
+};
+
 const units = new Map<string, Unit>();
 const tokenSecret = "sm-backend-worker-secret";
 const tokenTtlMs = 1000 * 60 * 60 * 12;
+const localAccounts: LocalAccount[] = [
+  {
+    username: "admin",
+    password: "Admin@123",
+    user: {
+      sub: "system-admin",
+      username: "admin",
+      role: "ADMIN",
+      unitId: "system",
+      unitName: "Khối hệ thống",
+      fullName: "System Admin",
+    },
+  },
+  {
+    username: "manager",
+    password: "Manager@123",
+    user: {
+      sub: "system-manager",
+      username: "manager",
+      role: "MANAGER",
+      unitId: "system",
+      unitName: "Khối hệ thống",
+      fullName: "System Manager",
+    },
+  },
+  {
+    username: "employee",
+    password: "Employee@123",
+    user: {
+      sub: "system-employee",
+      username: "employee",
+      role: "EMPLOYEE",
+      unitId: "system",
+      unitName: "Khối hệ thống",
+      fullName: "System Employee",
+    },
+  },
+];
 
 const seedUnits = (): void => {
   if (units.size > 0) {
@@ -240,6 +284,11 @@ export default {
     }
 
     if (request.method === "POST" && url.pathname === "/auth/login") {
+      const proxiedLogin = await proxyToNestOrigin(request, env);
+      if (proxiedLogin) {
+        return proxiedLogin;
+      }
+
       const body = await parseJson<{ username?: unknown; password?: unknown }>(request);
       if (!body) {
         return json(request, { message: "Body JSON không hợp lệ" }, 400);
@@ -248,18 +297,14 @@ export default {
       const username = typeof body.username === "string" ? body.username : "";
       const password = typeof body.password === "string" ? body.password : "";
 
-      if (username !== "admin" || password !== "Admin@123") {
+      const matchedAccount = localAccounts.find(
+        (account) => account.username === username && account.password === password,
+      );
+      if (!matchedAccount) {
         return json(request, { message: "Sai tài khoản hoặc mật khẩu" }, 401);
       }
 
-      const user: UserPayload = {
-        sub: "system-admin",
-        username: "admin",
-        role: "ADMIN",
-        unitId: "system",
-        unitName: "Khối hệ thống",
-        fullName: "System Admin",
-      };
+      const user: UserPayload = matchedAccount.user;
 
       const accessToken = await createAccessToken(user);
 
