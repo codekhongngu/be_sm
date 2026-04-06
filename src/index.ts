@@ -17,8 +17,71 @@ const json = (request: Request, data: unknown, status = 200): Response =>
     },
   });
 
+type Role = "EMPLOYEE" | "MANAGER" | "ADMIN";
+
+type UserPayload = {
+  sub: string;
+  username: string;
+  role: Role;
+  unitId: string;
+  unitName: string;
+  fullName: string;
+};
+
+type Unit = {
+  id: string;
+  code: string;
+  name: string;
+  telegramGroupChatId: string | null;
+  parentUnitId: string | null;
+  isActive: boolean;
+};
+
+const sessions = new Map<string, UserPayload>();
+const units = new Map<string, Unit>();
+
+const seedUnits = (): void => {
+  if (units.size > 0) {
+    return;
+  }
+  units.set("system", {
+    id: "system",
+    code: "SYSTEM",
+    name: "Khối hệ thống",
+    telegramGroupChatId: null,
+    parentUnitId: null,
+    isActive: true,
+  });
+};
+
+const getBearerToken = (request: Request): string | null => {
+  const authHeader = request.headers.get("authorization") || "";
+  if (!authHeader.startsWith("Bearer ")) {
+    return null;
+  }
+  const token = authHeader.slice("Bearer ".length).trim();
+  return token.length > 0 ? token : null;
+};
+
+const getCurrentUser = (request: Request): UserPayload | null => {
+  const token = getBearerToken(request);
+  if (!token) {
+    return null;
+  }
+  return sessions.get(token) || null;
+};
+
+const parseJson = async <T>(request: Request): Promise<T | null> => {
+  try {
+    return (await request.json()) as T;
+  } catch (error) {
+    return null;
+  }
+};
+
 export default {
   async fetch(request: Request): Promise<Response> {
+    seedUnits();
     const url = new URL(request.url);
 
     if (request.method === "OPTIONS") {
@@ -40,10 +103,8 @@ export default {
     }
 
     if (request.method === "POST" && url.pathname === "/auth/login") {
-      let body: { username?: unknown; password?: unknown } = {};
-      try {
-        body = (await request.json()) as { username?: unknown; password?: unknown };
-      } catch (error) {
+      const body = await parseJson<{ username?: unknown; password?: unknown }>(request);
+      if (!body) {
         return json(request, { message: "Body JSON không hợp lệ" }, 400);
       }
 
@@ -63,10 +124,85 @@ export default {
         fullName: "System Admin",
       };
 
+      const accessToken = `worker-${crypto.randomUUID()}`;
+      sessions.set(accessToken, user);
+
       return json(request, {
-        accessToken: `worker-${crypto.randomUUID()}`,
+        accessToken,
         user,
       });
+    }
+
+    if (request.method === "GET" && url.pathname === "/users/units") {
+      const currentUser = getCurrentUser(request);
+      if (!currentUser) {
+        return json(request, { message: "Unauthorized" }, 401);
+      }
+
+      if (currentUser.role !== "ADMIN" && currentUser.role !== "MANAGER") {
+        return json(request, { message: "Forbidden" }, 403);
+      }
+
+      const allUnits = Array.from(units.values());
+      if (currentUser.role === "ADMIN") {
+        return json(request, allUnits);
+      }
+      return json(request, allUnits.filter((unit) => unit.id === currentUser.unitId));
+    }
+
+    if (request.method === "POST" && url.pathname === "/users/units") {
+      const currentUser = getCurrentUser(request);
+      if (!currentUser) {
+        return json(request, { message: "Unauthorized" }, 401);
+      }
+      if (currentUser.role !== "ADMIN") {
+        return json(request, { message: "Forbidden" }, 403);
+      }
+
+      const body = await parseJson<{
+        code?: unknown;
+        name?: unknown;
+        telegramGroupChatId?: unknown;
+        parentUnitId?: unknown;
+        isActive?: unknown;
+      }>(request);
+      if (!body) {
+        return json(request, { message: "Body JSON không hợp lệ" }, 400);
+      }
+
+      const code = typeof body.code === "string" ? body.code.trim() : "";
+      const name = typeof body.name === "string" ? body.name.trim() : "";
+      if (!code || !name) {
+        return json(request, { message: "code và name là bắt buộc" }, 400);
+      }
+
+      const duplicatedCode = Array.from(units.values()).some((unit) => unit.code === code);
+      if (duplicatedCode) {
+        return json(request, { message: "code đã tồn tại" }, 400);
+      }
+
+      let parentUnitId: string | null = null;
+      if (typeof body.parentUnitId === "string") {
+        parentUnitId = body.parentUnitId;
+      }
+      if (body.parentUnitId === null) {
+        parentUnitId = null;
+      }
+      if (parentUnitId && !units.has(parentUnitId)) {
+        return json(request, { message: "parentUnitId không tồn tại" }, 400);
+      }
+
+      const unit: Unit = {
+        id: crypto.randomUUID(),
+        code,
+        name,
+        telegramGroupChatId:
+          typeof body.telegramGroupChatId === "string" ? body.telegramGroupChatId : null,
+        parentUnitId,
+        isActive: typeof body.isActive === "boolean" ? body.isActive : true,
+      };
+      units.set(unit.id, unit);
+      return json(request, unit, 201);
     }
 
     return json(request, { message: "Not Found" }, 404);
