@@ -1,15 +1,32 @@
+const corsHeaders = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "GET,POST,OPTIONS",
+  "access-control-allow-headers": "content-type,authorization",
+};
+
 const json = (data: unknown, status = 200): Response =>
   new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8" },
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      ...corsHeaders,
+    },
   });
 
 export default {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: corsHeaders });
+    }
+
     if (request.method === "GET" && url.pathname === "/health") {
       return json({ status: "ok" });
+    }
+
+    if (request.method === "GET" && url.pathname === "/auth/login") {
+      return json({ message: "Method Not Allowed. Use POST /auth/login" }, 405);
     }
 
     if (request.method === "POST" && url.pathname === "/auth/login") {
