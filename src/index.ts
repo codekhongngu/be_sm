@@ -37,8 +37,9 @@ type Unit = {
   isActive: boolean;
 };
 
-const sessions = new Map<string, UserPayload>();
 const units = new Map<string, Unit>();
+const tokenSecret = "sm-backend-worker-secret";
+const tokenTtlMs = 1000 * 60 * 60 * 12;
 
 const seedUnits = (): void => {
   if (units.size > 0) {
@@ -63,12 +64,87 @@ const getBearerToken = (request: Request): string | null => {
   return token.length > 0 ? token : null;
 };
 
-const getCurrentUser = (request: Request): UserPayload | null => {
+const encodeBase64Url = (value: string): string =>
+  btoa(String.fromCharCode(...new TextEncoder().encode(value)))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+
+const decodeBase64Url = (value: string): string | null => {
+  try {
+    const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+    const binary = atob(padded);
+    const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch (error) {
+    return null;
+  }
+};
+
+const signPayload = async (payloadPart: string): Promise<string> => {
+  const source = `${payloadPart}.${tokenSecret}`;
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(source));
+  const bytes = new Uint8Array(digest);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+};
+
+const createAccessToken = async (user: UserPayload): Promise<string> => {
+  const payload = {
+    ...user,
+    exp: Date.now() + tokenTtlMs,
+  };
+  const payloadPart = encodeBase64Url(JSON.stringify(payload));
+  const signature = await signPayload(payloadPart);
+  return `${payloadPart}.${signature}`;
+};
+
+const getCurrentUser = async (request: Request): Promise<UserPayload | null> => {
   const token = getBearerToken(request);
   if (!token) {
     return null;
   }
-  return sessions.get(token) || null;
+  const [payloadPart, signature] = token.split(".");
+  if (!payloadPart || !signature) {
+    return null;
+  }
+  const expected = await signPayload(payloadPart);
+  if (expected !== signature) {
+    return null;
+  }
+  const payloadText = decodeBase64Url(payloadPart);
+  if (!payloadText) {
+    return null;
+  }
+  try {
+    const payload = JSON.parse(payloadText) as UserPayload & { exp?: unknown };
+    if (typeof payload.exp !== "number" || Date.now() > payload.exp) {
+      return null;
+    }
+    if (
+      typeof payload.sub !== "string" ||
+      typeof payload.username !== "string" ||
+      typeof payload.role !== "string" ||
+      typeof payload.unitId !== "string" ||
+      typeof payload.unitName !== "string" ||
+      typeof payload.fullName !== "string"
+    ) {
+      return null;
+    }
+    if (payload.role !== "EMPLOYEE" && payload.role !== "MANAGER" && payload.role !== "ADMIN") {
+      return null;
+    }
+    return {
+      sub: payload.sub,
+      username: payload.username,
+      role: payload.role,
+      unitId: payload.unitId,
+      unitName: payload.unitName,
+      fullName: payload.fullName,
+    };
+  } catch (error) {
+    return null;
+  }
 };
 
 const parseJson = async <T>(request: Request): Promise<T | null> => {
@@ -124,8 +200,7 @@ export default {
         fullName: "System Admin",
       };
 
-      const accessToken = `worker-${crypto.randomUUID()}`;
-      sessions.set(accessToken, user);
+      const accessToken = await createAccessToken(user);
 
       return json(request, {
         accessToken,
@@ -134,7 +209,7 @@ export default {
     }
 
     if (request.method === "GET" && url.pathname === "/users/units") {
-      const currentUser = getCurrentUser(request);
+      const currentUser = await getCurrentUser(request);
       if (!currentUser) {
         return json(request, { message: "Unauthorized" }, 401);
       }
@@ -151,7 +226,7 @@ export default {
     }
 
     if (request.method === "POST" && url.pathname === "/users/units") {
-      const currentUser = getCurrentUser(request);
+      const currentUser = await getCurrentUser(request);
       if (!currentUser) {
         return json(request, { message: "Unauthorized" }, 401);
       }
