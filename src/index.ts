@@ -115,7 +115,7 @@ export default {
         return json(request, { message: "Sai tài khoản hoặc mật khẩu" }, 401);
       }
 
-      const user = {
+      const user: UserPayload = {
         sub: "system-admin",
         username: "admin",
         role: "ADMIN",
