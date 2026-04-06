@@ -1,0 +1,761 @@
+openapi: 3.0.3
+info:
+  title: SM Backend API
+  version: 1.0.0
+  description: API spec generated from current source controllers.
+servers:
+  - url: http://localhost:3000
+    description: Local NestJS
+  - url: https://be-sm.codekhongngu.workers.dev
+    description: Cloudflare Worker
+tags:
+  - name: App
+  - name: Auth
+  - name: Catalogs
+  - name: Dashboard
+  - name: Evaluations
+  - name: Journals
+  - name: Users
+paths:
+  /:
+    get:
+      tags: [App]
+      summary: Health root
+      responses:
+        "200":
+          description: OK
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: Registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /catalogs:
+    get:
+      tags: [Catalogs]
+      summary: Get catalogs
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Catalog list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+    post:
+      tags: [Catalogs]
+      summary: Create catalog
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+  /catalogs/{id}:
+    patch:
+      tags: [Catalogs]
+      summary: Update catalog
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+  /catalogs/{id}/deactivate:
+    patch:
+      tags: [Catalogs]
+      summary: Deactivate catalog
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Deactivated
+          content:
+            application/json:
+              schema:
+                type: object
+  /dashboard/metrics:
+    get:
+      tags: [Dashboard]
+      summary: Dashboard metrics
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Metrics
+          content:
+            application/json:
+              schema:
+                type: object
+  /dashboard/behavior-analytics:
+    get:
+      tags: [Dashboard]
+      summary: Behavior analytics
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Analytics
+          content:
+            application/json:
+              schema:
+                type: object
+  /evaluations:
+    post:
+      tags: [Evaluations]
+      summary: Create evaluation
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+  /evaluations/{journalId}:
+    patch:
+      tags: [Evaluations]
+      summary: Update evaluation by journal
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: journalId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+  /evaluations/{journalId}/awareness:
+    patch:
+      tags: [Evaluations]
+      summary: Submit awareness form
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: journalId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+  /evaluations/{journalId}/standards:
+    patch:
+      tags: [Evaluations]
+      summary: Submit standards form
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: journalId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+  /evaluations/pending/list:
+    get:
+      tags: [Evaluations]
+      summary: Pending evaluations
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Pending list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+  /evaluations/analytics/weekly:
+    get:
+      tags: [Evaluations]
+      summary: Weekly analytics
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Weekly analytics
+          content:
+            application/json:
+              schema:
+                type: object
+  /journals:
+    get:
+      tags: [Journals]
+      summary: Get journals
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Journal list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+    post:
+      tags: [Journals]
+      summary: Create journal
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+  /journals/{id}:
+    get:
+      tags: [Journals]
+      summary: Get journal by id
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Journal
+          content:
+            application/json:
+              schema:
+                type: object
+  /journals/eform-awareness:
+    post:
+      tags: [Journals]
+      summary: Submit awareness eform
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "201":
+          description: Submitted
+          content:
+            application/json:
+              schema:
+                type: object
+  /journals/eform-standards:
+    post:
+      tags: [Journals]
+      summary: Submit standards eform
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "201":
+          description: Submitted
+          content:
+            application/json:
+              schema:
+                type: object
+  /users:
+    get:
+      tags: [Users]
+      summary: Get users
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: User list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+    post:
+      tags: [Users]
+      summary: Create user
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+  /users/{id}:
+    put:
+      tags: [Users]
+      summary: Replace user
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+    patch:
+      tags: [Users]
+      summary: Update user
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+  /users/{id}/reset-password:
+    patch:
+      tags: [Users]
+      summary: Reset user password
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordRequest"
+      responses:
+        "200":
+          description: Password reset
+          content:
+            application/json:
+              schema:
+                type: object
+  /users/me/change-password:
+    patch:
+      tags: [Users]
+      summary: Change own password
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "200":
+          description: Password changed
+          content:
+            application/json:
+              schema:
+                type: object
+  /users/units:
+    get:
+      tags: [Users]
+      summary: Get units
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Unit list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Unit"
+    post:
+      tags: [Users]
+      summary: Create unit
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUnitRequest"
+      responses:
+        "201":
+          description: Unit created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Unit"
+  /users/units/{id}:
+    patch:
+      tags: [Users]
+      summary: Update unit
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Unit updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Unit"
+    delete:
+      tags: [Users]
+      summary: Delete unit
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+  /users/{id}/role:
+    patch:
+      tags: [Users]
+      summary: Update user role
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role:
+                  type: string
+                  enum: [EMPLOYEE, MANAGER, ADMIN]
+              required: [role]
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+  /users/{id}/unit:
+    patch:
+      tags: [Users]
+      summary: Update user unit
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                unitId:
+                  type: string
+              required: [unitId]
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+  /users/import-excel:
+    post:
+      tags: [Users]
+      summary: Import users from Excel
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+              required: [file]
+      responses:
+        "200":
+          description: Imported
+          content:
+            application/json:
+              schema:
+                type: object
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    IdPath:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+  schemas:
+    LoginRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          example: admin
+        password:
+          type: string
+          example: Admin@123
+      required: [username, password]
+    RegisterRequest:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+        fullName:
+          type: string
+        unitId:
+          type: string
+        role:
+          type: string
+          enum: [EMPLOYEE, MANAGER, ADMIN]
+      required: [username, password, fullName, unitId]
+    AuthUser:
+      type: object
+      properties:
+        sub:
+          type: string
+        username:
+          type: string
+        role:
+          type: string
+          enum: [EMPLOYEE, MANAGER, ADMIN]
+        unitId:
+          type: string
+        unitName:
+          type: string
+        fullName:
+          type: string
+      required: [sub, username, role, unitId, fullName]
+    AuthResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        user:
+          $ref: "#/components/schemas/AuthUser"
+      required: [accessToken, user]
+    ChangePasswordRequest:
+      type: object
+      properties:
+        oldPassword:
+          type: string
+        newPassword:
+          type: string
+      required: [oldPassword, newPassword]
+    ResetPasswordRequest:
+      type: object
+      properties:
+        newPassword:
+          type: string
+      required: [newPassword]
+    CreateUnitRequest:
+      type: object
+      properties:
+        code:
+          type: string
+          example: S-QUYNHON
+        name:
+          type: string
+          example: Phòng bán hàng Quy Nhơn
+        telegramGroupChatId:
+          type: string
+          nullable: true
+        parentUnitId:
+          type: string
+          nullable: true
+        isActive:
+          type: boolean
+      required: [code, name]
+    Unit:
+      type: object
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        name:
+          type: string
+        telegramGroupChatId:
+          type: string
+          nullable: true
+        parentUnitId:
+          type: string
+          nullable: true
+        isActive:
+          type: boolean
+      required: [id, code, name, isActive]

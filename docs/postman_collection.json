@@ -1,0 +1,616 @@
+{
+  "info": {
+    "name": "SM Backend API",
+    "_postman_id": "adf3f418-8df9-4ec6-bf7b-1bb4ddf60a09",
+    "description": "Collection generated from current source controllers.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"admin\",\n  \"password\": \"Admin@123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"newuser\",\n  \"password\": \"Password@123\",\n  \"fullName\": \"New User\",\n  \"unitId\": \"system\",\n  \"role\": \"EMPLOYEE\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "register"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Dashboard",
+      "item": [
+        {
+          "name": "Metrics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/metrics",
+              "host": ["{{baseUrl}}"],
+              "path": ["dashboard", "metrics"]
+            }
+          }
+        },
+        {
+          "name": "Behavior Analytics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard/behavior-analytics",
+              "host": ["{{baseUrl}}"],
+              "path": ["dashboard", "behavior-analytics"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "Get Users",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["users"]
+            }
+          }
+        },
+        {
+          "name": "Create User",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"sale.qn\",\n  \"password\": \"User@123\",\n  \"fullName\": \"Sale Quy Nhơn\",\n  \"unitId\": \"system\",\n  \"role\": \"EMPLOYEE\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["users"]
+            }
+          }
+        },
+        {
+          "name": "Change My Password",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"oldPassword\": \"Admin@123\",\n  \"newPassword\": \"Admin@1234\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users/me/change-password",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", "me", "change-password"]
+            }
+          }
+        },
+        {
+          "name": "Get Units",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/units",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", "units"]
+            }
+          }
+        },
+        {
+          "name": "Create Unit",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"S-QUYNHON\",\n  \"name\": \"Phòng bán hàng Quy Nhơn\",\n  \"parentUnitId\": null\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users/units",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", "units"]
+            }
+          }
+        },
+        {
+          "name": "Update Unit",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Phòng bán hàng Quy Nhơn - Cập nhật\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users/units/{{unitId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", "units", "{{unitId}}"]
+            }
+          }
+        },
+        {
+          "name": "Delete Unit",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/units/{{unitId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", "units", "{{unitId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Journals",
+      "item": [
+        {
+          "name": "Get Journals",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/journals",
+              "host": ["{{baseUrl}}"],
+              "path": ["journals"]
+            }
+          }
+        },
+        {
+          "name": "Get Journal By Id",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/journals/{{journalId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["journals", "{{journalId}}"]
+            }
+          }
+        },
+        {
+          "name": "Create Journal",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/journals",
+              "host": ["{{baseUrl}}"],
+              "path": ["journals"]
+            }
+          }
+        },
+        {
+          "name": "Submit Eform Awareness",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/journals/eform-awareness",
+              "host": ["{{baseUrl}}"],
+              "path": ["journals", "eform-awareness"]
+            }
+          }
+        },
+        {
+          "name": "Submit Eform Standards",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/journals/eform-standards",
+              "host": ["{{baseUrl}}"],
+              "path": ["journals", "eform-standards"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Evaluations",
+      "item": [
+        {
+          "name": "Create Evaluation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/evaluations",
+              "host": ["{{baseUrl}}"],
+              "path": ["evaluations"]
+            }
+          }
+        },
+        {
+          "name": "Update Evaluation",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/evaluations/{{journalId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["evaluations", "{{journalId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Awareness",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/evaluations/{{journalId}}/awareness",
+              "host": ["{{baseUrl}}"],
+              "path": ["evaluations", "{{journalId}}", "awareness"]
+            }
+          }
+        },
+        {
+          "name": "Update Standards",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/evaluations/{{journalId}}/standards",
+              "host": ["{{baseUrl}}"],
+              "path": ["evaluations", "{{journalId}}", "standards"]
+            }
+          }
+        },
+        {
+          "name": "Pending List",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/evaluations/pending/list",
+              "host": ["{{baseUrl}}"],
+              "path": ["evaluations", "pending", "list"]
+            }
+          }
+        },
+        {
+          "name": "Weekly Analytics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/evaluations/analytics/weekly",
+              "host": ["{{baseUrl}}"],
+              "path": ["evaluations", "analytics", "weekly"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Catalogs",
+      "item": [
+        {
+          "name": "Get Catalogs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/catalogs",
+              "host": ["{{baseUrl}}"],
+              "path": ["catalogs"]
+            }
+          }
+        },
+        {
+          "name": "Create Catalog",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/catalogs",
+              "host": ["{{baseUrl}}"],
+              "path": ["catalogs"]
+            }
+          }
+        },
+        {
+          "name": "Update Catalog",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/catalogs/{{catalogId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["catalogs", "{{catalogId}}"]
+            }
+          }
+        },
+        {
+          "name": "Deactivate Catalog",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/catalogs/{{catalogId}}/deactivate",
+              "host": ["{{baseUrl}}"],
+              "path": ["catalogs", "{{catalogId}}", "deactivate"]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "unitId",
+      "value": ""
+    },
+    {
+      "key": "journalId",
+      "value": ""
+    },
+    {
+      "key": "catalogId",
+      "value": ""
+    }
+  ]
+}

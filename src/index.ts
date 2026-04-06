@@ -37,6 +37,10 @@ type Unit = {
   isActive: boolean;
 };
 
+type Env = {
+  NEST_API_ORIGIN?: string;
+};
+
 const units = new Map<string, Unit>();
 const tokenSecret = "sm-backend-worker-secret";
 const tokenTtlMs = 1000 * 60 * 60 * 12;
@@ -155,8 +159,57 @@ const parseJson = async <T>(request: Request): Promise<T | null> => {
   }
 };
 
+const withCorsHeaders = (request: Request, response: Response): Response => {
+  const headers = new Headers(response.headers);
+  headers.set("referrer-policy", "no-referrer");
+  const cors = getCorsHeaders(request);
+  for (const key of Object.keys(cors)) {
+    headers.set(key, cors[key]);
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+};
+
+const proxyToNestOrigin = async (request: Request, env: Env): Promise<Response | null> => {
+  const rawOrigin = (env.NEST_API_ORIGIN || "").trim();
+  if (!rawOrigin) {
+    return null;
+  }
+
+  const sourceUrl = new URL(request.url);
+  const normalizedOrigin = rawOrigin.replace(/\/+$/g, "");
+  let originUrl: URL;
+  try {
+    originUrl = new URL(normalizedOrigin);
+  } catch (error) {
+    return null;
+  }
+
+  if (originUrl.host === sourceUrl.host) {
+    return null;
+  }
+
+  const targetUrl = `${normalizedOrigin}${sourceUrl.pathname}${sourceUrl.search}`;
+  const headers = new Headers(request.headers);
+  headers.set("x-forwarded-host", sourceUrl.host);
+  headers.set("x-forwarded-proto", sourceUrl.protocol.replace(":", ""));
+  headers.set("x-forwarded-for", request.headers.get("cf-connecting-ip") || "");
+
+  const response = await fetch(targetUrl, {
+    method: request.method,
+    headers,
+    body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,
+    redirect: "manual",
+  });
+
+  return withCorsHeaders(request, response);
+};
+
 export default {
-  async fetch(request: Request): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     seedUnits();
     const url = new URL(request.url);
 
@@ -278,6 +331,15 @@ export default {
       };
       units.set(unit.id, unit);
       return json(request, unit, 201);
+    }
+
+    try {
+      const proxied = await proxyToNestOrigin(request, env);
+      if (proxied) {
+        return proxied;
+      }
+    } catch (error) {
+      return json(request, { message: "Bad Gateway" }, 502);
     }
 
     return json(request, { message: "Not Found" }, 404);
