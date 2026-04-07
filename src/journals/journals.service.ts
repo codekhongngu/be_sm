@@ -81,8 +81,11 @@ export class JournalsService {
     details: string[];
   }) {
     const unit = await this.usersService.findUnitById(params.user.unitId);
-    const baseUrl =
-      this.configService.get<string>('APP_BASE_URL') || 'http://localhost:3000';
+    const feBaseUrl =
+      this.configService.get<string>('FE_ORIGIN') ||
+      this.configService.get<string>('APP_BASE_URL') ||
+      'http://localhost:3000';
+    const normalizedFeBaseUrl = feBaseUrl.replace(/\/+$/g, '');
     const detailsText = params.details
       .filter((item) => !!item)
       .map((item) => `- ${item}`)
@@ -91,7 +94,7 @@ export class JournalsService {
       `Nhân viên ${params.user.fullName} vừa ${params.action} ${params.eformName}\n` +
       `Ngày: ${params.reportDate}\n` +
       `${detailsText}\n` +
-      `Xem chi tiết: ${baseUrl}/journals/${params.journalId}`;
+      `Link đánh giá: ${normalizedFeBaseUrl}/discipline/manager-review/${params.journalId}`;
     if (unit?.telegramGroupChatId) {
       await this.telegramService.sendMessage(unit.telegramGroupChatId, message);
     }
@@ -143,13 +146,13 @@ export class JournalsService {
       user,
       journalId: saved.id,
       reportDate,
-      eformName: 'E-form Nhận diện',
+      eformName: 'Nhật ký nhận diện hằng ngày',
       action: isFirstSubmit ? 'nộp' : 'cập nhật',
       details: [
-        `Né tránh: ${this.trimText(dto.avoidance)}`,
-        `Tự loại gói: ${this.trimText(dto.selfLimit)}`,
-        `Dừng tư vấn sớm: ${this.trimText(dto.earlyStop)}`,
-        `Đổ lỗi: ${this.trimText(dto.blaming)}`,
+        `Hôm nay tôi đã né điều gì: ${this.trimText(dto.avoidance)}`,
+        `Tôi có tự loại gói nào không: ${this.trimText(dto.selfLimit)}`,
+        `Tôi đã dừng tư vấn sớm ở điểm nào: ${this.trimText(dto.earlyStop)}`,
+        `Khi không bán được dịch vụ anh chị thường đỗ lỗi cho vấn đề gì: ${this.trimText(dto.blaming)}`,
       ],
     });
     return saved;
@@ -180,12 +183,12 @@ export class JournalsService {
       user,
       journalId: saved.id,
       reportDate,
-      eformName: 'E-form Giữ chuẩn',
+      eformName: 'Nhật ký giữ chuẩn thu nhập cao',
       action: isFirstSubmit ? 'nộp' : 'cập nhật',
       details: [
-        `Chuẩn đã giữ: ${this.trimText(dto.standardsKeptText)}`,
-        `Dấu hiệu tụt chuẩn: ${this.trimText(dto.backslideSigns)}`,
-        `Giải pháp: ${this.trimText(dto.solution)}`,
+        `Hôm nay tôi giữ được chuẩn nào: ${this.trimText(dto.standardsKeptText)}`,
+        `Dấu hiệu tụt chuẩn nào xuất hiện: ${this.trimText(dto.backslideSigns)}`,
+        `Tôi đã xử lý nó ra sao: ${this.trimText(dto.solution)}`,
       ],
     });
     return saved;

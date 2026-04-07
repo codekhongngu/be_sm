@@ -225,3 +225,60 @@ docker run -d \
 - Dùng mật khẩu DB mạnh và giới hạn IP truy cập DB
 - Tắt `DB_SYNC` ở production
 - Theo dõi log bằng `docker logs` hoặc stack giám sát riêng
+
+## 11) Windows Server 2022 chạy trên QEMU VM
+
+Với source này (dùng image Linux như `node:20-alpine`, `postgres:16`), không nên chạy Windows Containers.
+
+- Nếu `docker info --format "{{.OSType}}"` trả `windows` thì sẽ dễ gặp lỗi network `bridge plugin not found`.
+- Hướng ổn định nhất trên Windows Server 2022 là chạy stack trong môi trường Linux (WSL2 hoặc Linux VM riêng).
+
+### 11.1 Kiểm tra mode Docker
+
+```powershell
+docker info --format "{{.OSType}}"
+```
+
+- Nếu ra `linux`: có thể chạy luôn `docker compose`.
+- Nếu ra `windows`: chuyển sang Linux containers hoặc dùng cách WSL2 bên dưới.
+
+### 11.2 Cách khuyến nghị: chạy bằng WSL2 (Ubuntu)
+
+Trên PowerShell (Run as Administrator):
+
+```powershell
+wsl --install
+```
+
+Khởi động lại máy, cài Ubuntu, rồi vào Ubuntu shell:
+
+```bash
+sudo apt update
+sudo apt install -y ca-certificates curl gnupg
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo usermod -aG docker $USER
+newgrp docker
+```
+
+Sau đó deploy trong Ubuntu:
+
+```bash
+git clone <repo-url> sm-backend
+cd sm-backend
+cp .env.example .env
+docker compose up -d --build
+npm run db:init:docker
+```
+
+### 11.3 Lưu ý riêng cho QEMU VM
+
+- Bật VT-x/AMD-V và nested virtualization nếu dùng WSL2 trong guest Windows Server.
+- Nếu nhà cung cấp VM không hỗ trợ nested virtualization, dùng Linux VM riêng để deploy Docker sẽ ổn định hơn.
