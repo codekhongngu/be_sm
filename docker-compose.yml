@@ -7,6 +7,8 @@ services:
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
       POSTGRES_DB: ${DB_NAME:-sales_behavior}
+    ports:
+      - "${DB_PORT:-15433}:5433"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -26,16 +28,16 @@ services:
     env_file:
       - .env
     environment:
-      PORT: ${PORT:-3000}
+      PORT: ${PORT:-3001}
       DB_HOST: postgres
-      DB_PORT: 5432
+      DB_PORT: 5433
       DB_USER: ${DB_USER:-postgres}
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
       DB_NAME: ${DB_NAME:-sales_behavior}
       DATABASE_URL: ""
       DB_SYNC: ${DB_SYNC:-false}
     ports:
-      - "${APP_PORT:-3001}:3000"
+      - "${APP_PORT:-3001}:${PORT:-3001}"
     depends_on:
       postgres:
         condition: service_healthy
