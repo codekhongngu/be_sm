@@ -25,6 +25,7 @@ import { MindsetLog } from './behavior/entities/mindset-log.entity';
 import { SalesActivityReport } from './behavior/entities/sales-activity-report.entity';
 import { EndOfDayLog } from './behavior/entities/end-of-day-log.entity';
 import { BeliefTransformationLog } from './behavior/entities/belief-transformation-log.entity';
+import { WeeklyJournalLog } from './behavior/entities/weekly-journal-log.entity';
 import { ManagerDailyScoresModule } from './manager-daily-scores/manager-daily-scores.module';
 import { ManagerDailyScoreCriterion } from './manager-daily-scores/entities/manager-daily-score-criterion.entity';
 import { ManagerDailyScoreSheet } from './manager-daily-scores/entities/manager-daily-score-sheet.entity';
@@ -67,6 +68,7 @@ import { ManagerDailyScoreItem } from './manager-daily-scores/entities/manager-d
             SalesActivityReport,
             EndOfDayLog,
             BeliefTransformationLog,
+            WeeklyJournalLog,
             ManagerDailyScoreCriterion,
             ManagerDailyScoreSheet,
             ManagerDailyScoreItem,

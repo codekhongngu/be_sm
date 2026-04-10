@@ -10,6 +10,7 @@ import { EndOfDayLog } from './entities/end-of-day-log.entity';
 import { MindsetLog } from './entities/mindset-log.entity';
 import { SalesActivityReport } from './entities/sales-activity-report.entity';
 import { WeeklyConfig } from './entities/weekly-config.entity';
+import { WeeklyJournalLog } from './entities/weekly-journal-log.entity';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { WeeklyConfig } from './entities/weekly-config.entity';
       SalesActivityReport,
       EndOfDayLog,
       BeliefTransformationLog,
+      WeeklyJournalLog,
     ]),
   ],
   controllers: [BehaviorController],

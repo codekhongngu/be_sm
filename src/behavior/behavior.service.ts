@@ -18,9 +18,11 @@ import { EndOfDayLog } from './entities/end-of-day-log.entity';
 import { MindsetLog } from './entities/mindset-log.entity';
 import { SalesActivityReport } from './entities/sales-activity-report.entity';
 import { WeeklyConfig } from './entities/weekly-config.entity';
+import { WeeklyJournalLog } from './entities/weekly-journal-log.entity';
 import { EvaluateBehaviorLogDto } from './dto/evaluate-behavior-log.dto';
 import { BehaviorFormType, SubmitLogDto } from './dto/submit-log.dto';
 import { CreateWeeklyConfigDto } from './dto/create-weekly-config.dto';
+import { SubmitWeeklyJournalDto, WeeklyJournalFormType } from './dto/submit-weekly-journal.dto';
 import { UpdateWeeklyConfigDto } from './dto/update-weekly-config.dto';
 
 @Injectable()
@@ -42,6 +44,8 @@ export class BehaviorService {
     private readonly endOfDayLogsRepository: Repository<EndOfDayLog>,
     @InjectRepository(BeliefTransformationLog)
     private readonly beliefTransformationLogsRepository: Repository<BeliefTransformationLog>,
+    @InjectRepository(WeeklyJournalLog)
+    private readonly weeklyJournalLogsRepository: Repository<WeeklyJournalLog>,
   ) {}
 
   async submitLog(user: any, dto: SubmitLogDto) {
@@ -335,6 +339,99 @@ export class BehaviorService {
         startDate: 'DESC',
       },
     });
+  }
+
+  async getWeeklyConfigsForUser() {
+    return this.weeklyConfigsRepository.find({
+      order: {
+        startDate: 'DESC',
+      },
+    });
+  }
+
+  async submitWeeklyJournal(user: any, dto: SubmitWeeklyJournalDto) {
+    if (user.role !== Role.EMPLOYEE) {
+      throw new ForbiddenException('Chỉ nhân viên được nộp nhật ký hằng tuần');
+    }
+    const week = await this.weeklyConfigsRepository.findOne(dto.weekId);
+    if (!week) {
+      throw new NotFoundException('Không tìm thấy cấu hình tuần');
+    }
+    let entries = Array.isArray(dto.entries) ? dto.entries : [];
+    if (dto.formType === WeeklyJournalFormType.FORM_10) {
+      entries = entries.map((item) => ({
+        highIncomeAction: String(item.highIncomeAction || '').trim(),
+        result: String(item.result || '').trim(),
+        feeling: String(item.feeling || '').trim(),
+        review: String(item.review || '').trim(),
+      }));
+    } else {
+      entries = entries.map((item) => ({
+        bestValueArea: String(item.bestValueArea || '').trim(),
+        incomeIncreaseBehavior: String(item.incomeIncreaseBehavior || '').trim(),
+        backslideSign: String(item.backslideSign || '').trim(),
+        nextWeekPlan: String(item.nextWeekPlan || '').trim(),
+        review: String(item.review || '').trim(),
+      }));
+    }
+    let row = await this.weeklyJournalLogsRepository.findOne({
+      where: {
+        userId: user.id,
+        weekId: dto.weekId,
+        formType: dto.formType,
+      },
+    });
+    if (!row) {
+      row = this.weeklyJournalLogsRepository.create({
+        userId: user.id,
+        weekId: dto.weekId,
+        formType: dto.formType,
+      });
+    }
+    row.entries = entries;
+    row.submittedAt = new Date();
+    const saved = await this.weeklyJournalLogsRepository.save(row);
+    return {
+      id: saved.id,
+      weekId: saved.weekId,
+      formType: saved.formType,
+      submittedAt: saved.submittedAt,
+      entries: saved.entries,
+    };
+  }
+
+  async getWeeklyJournals(user: any, weekId: string) {
+    if (user.role !== Role.EMPLOYEE) {
+      throw new ForbiddenException('Chỉ nhân viên được xem nhật ký hằng tuần của mình');
+    }
+    if (!weekId) {
+      throw new BadRequestException('Thiếu weekId');
+    }
+    const rows = await this.weeklyJournalLogsRepository.find({
+      where: {
+        userId: user.id,
+        weekId,
+      },
+    });
+    const form10 = rows.find((item) => item.formType === WeeklyJournalFormType.FORM_10);
+    const form11 = rows.find((item) => item.formType === WeeklyJournalFormType.FORM_11);
+    return {
+      weekId,
+      form10: form10
+        ? {
+            id: form10.id,
+            submittedAt: form10.submittedAt,
+            entries: form10.entries || [],
+          }
+        : null,
+      form11: form11
+        ? {
+            id: form11.id,
+            submittedAt: form11.submittedAt,
+            entries: form11.entries || [],
+          }
+        : null,
+    };
   }
 
   private async ensureValidWeeklyConfig(

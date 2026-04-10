@@ -18,6 +18,7 @@ import { BehaviorService } from './behavior.service';
 import { CreateWeeklyConfigDto } from './dto/create-weekly-config.dto';
 import { EvaluateBehaviorLogDto } from './dto/evaluate-behavior-log.dto';
 import { SubmitLogDto } from './dto/submit-log.dto';
+import { SubmitWeeklyJournalDto } from './dto/submit-weekly-journal.dto';
 import { UpdateWeeklyConfigDto } from './dto/update-weekly-config.dto';
 
 @Controller('api')
@@ -83,5 +84,23 @@ export class BehaviorController {
   @Roles(Role.ADMIN)
   deleteWeeklyConfig(@Param('id') id: string) {
     return this.behaviorService.deleteWeeklyConfig(id);
+  }
+
+  @Get('weekly-configs')
+  @Roles(Role.EMPLOYEE, Role.MANAGER, Role.ADMIN)
+  getWeeklyConfigsForUser() {
+    return this.behaviorService.getWeeklyConfigsForUser();
+  }
+
+  @Get('weekly-journals')
+  @Roles(Role.EMPLOYEE)
+  getWeeklyJournals(@Req() req: any, @Query('weekId') weekId: string) {
+    return this.behaviorService.getWeeklyJournals(req.user, weekId);
+  }
+
+  @Post('weekly-journals/submit')
+  @Roles(Role.EMPLOYEE)
+  submitWeeklyJournal(@Req() req: any, @Body() dto: SubmitWeeklyJournalDto) {
+    return this.behaviorService.submitWeeklyJournal(req.user, dto);
   }
 }

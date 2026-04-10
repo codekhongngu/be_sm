@@ -8,8 +8,10 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { Role } from 'src/common/enums/role.enum';
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
@@ -85,6 +87,28 @@ export class ManagerDailyScoresController {
       toDate,
       employeeId,
     });
+  }
+
+  @Get('statistics-export')
+  @Roles(Role.MANAGER, Role.ADMIN)
+  async exportStatistics(
+    @Req() req: any,
+    @Query('fromDate') fromDate: string,
+    @Query('toDate') toDate: string,
+    @Query('employeeId') employeeId: string,
+    @Res() res: Response,
+  ) {
+    const file = await this.managerDailyScoresService.exportStatisticsFile(req.user, {
+      fromDate,
+      toDate,
+      employeeId,
+    });
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
+    return res.send(file.buffer);
   }
 
   @Get('statistics/:scoreDate')

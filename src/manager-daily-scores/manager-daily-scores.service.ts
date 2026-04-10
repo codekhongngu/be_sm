@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Role } from 'src/common/enums/role.enum';
 import { User } from 'src/users/entities/user.entity';
 import { Repository } from 'typeorm';
+import * as XLSX from 'xlsx';
 import { CreateManagerDailyScoreCriterionDto } from './dto/create-manager-daily-score-criterion.dto';
 import { SubmitManagerDailyScoreDto } from './dto/submit-manager-daily-score.dto';
 import { UpdateManagerDailyScoreCriterionDto } from './dto/update-manager-daily-score-criterion.dto';
@@ -33,6 +34,10 @@ const DEFAULT_CRITERIA = [
   ['PERFORMANCE', 'III. Nâng cao hiệu quả hoạt động', 3, 'PERFORMANCE_REVENUE', 15, '4', 'Doanh thu PTM/GH cá nhân', 30],
   ['PERFORMANCE', 'III. Nâng cao hiệu quả hoạt động', 3, 'PERFORMANCE_RETURNING_REFERRED', 16, '5', 'Số KH quay lại giới thiệu KH mới', 2],
 ] as const;
+const BEHAVIOR_SECTION_CODE = 'BEHAVIOR';
+const BEHAVIOR_SECTION_MAX_SCORE = 35;
+const BEHAVIOR_CUSTOMERS_CONTACTED_CODE = 'BEHAVIOR_CUSTOMERS_CONTACTED';
+const BEHAVIOR_SUCCESSFUL_CARE_CALLS_CODE = 'BEHAVIOR_SUCCESSFUL_CARE_CALLS';
 
 @Injectable()
 export class ManagerDailyScoresService {
@@ -129,7 +134,10 @@ export class ManagerDailyScoresService {
       .sort((a, b) => a.sectionSortOrder - b.sectionSortOrder)
       .map((section) => ({
         ...section,
-        maxScore: Number(section.maxScore.toFixed(2)),
+        maxScore:
+          section.sectionCode === BEHAVIOR_SECTION_CODE
+            ? BEHAVIOR_SECTION_MAX_SCORE
+            : Number(section.maxScore.toFixed(2)),
         items: section.items.sort((a, b) => a.sttLabel.localeCompare(b.sttLabel, 'vi')),
       }));
 
@@ -399,6 +407,36 @@ export class ManagerDailyScoresService {
       }
     }
 
+    const criterionByCode = new Map(activeCriteria.map((item) => [item.itemCode, item]));
+    const customersContacted = criterionByCode.get(BEHAVIOR_CUSTOMERS_CONTACTED_CODE);
+    const successfulCareCalls = criterionByCode.get(BEHAVIOR_SUCCESSFUL_CARE_CALLS_CODE);
+    if (customersContacted && successfulCareCalls) {
+      const customersContactedScore = Number(
+        payloadMap.get(customersContacted.id)?.score || 0,
+      );
+      const successfulCareCallsScore = Number(
+        payloadMap.get(successfulCareCalls.id)?.score || 0,
+      );
+      if (customersContactedScore > 0 && successfulCareCallsScore > 0) {
+        throw new BadRequestException(
+          'Tiêu chí Số khách hàng tiếp cận và Số cuộc gọi CSKH thành công không được cùng lớn hơn 0',
+        );
+      }
+    }
+
+    const behaviorCriteriaIds = activeCriteria
+      .filter((item) => item.sectionCode === BEHAVIOR_SECTION_CODE)
+      .map((item) => item.id);
+    const behaviorSectionScore = behaviorCriteriaIds.reduce(
+      (sum, criteriaId) => sum + Number(payloadMap.get(criteriaId)?.score || 0),
+      0,
+    );
+    if (behaviorSectionScore > BEHAVIOR_SECTION_MAX_SCORE) {
+      throw new BadRequestException(
+        `Tổng điểm phần II. Thực hành hành vi không được vượt quá ${BEHAVIOR_SECTION_MAX_SCORE}`,
+      );
+    }
+
     let sheet = await this.sheetsRepository.findOne({
       where: {
         employeeId: employee.id,
@@ -462,8 +500,8 @@ export class ManagerDailyScoresService {
       },
       totalScore,
       totalMaxScore: Number(
-        activeCriteria
-          .reduce((sum, criterion) => sum + this.normalizeNumber(criterion.maxScore), 0)
+        this.groupCriteria(activeCriteria)
+          .reduce((sum, section) => sum + section.maxScore, 0)
           .toFixed(2),
       ),
       items: detailedItems,
@@ -578,5 +616,41 @@ export class ManagerDailyScoresService {
               ),
       },
     };
+  }
+
+  async exportStatisticsFile(
+    currentUser: any,
+    filters: { fromDate?: string; toDate?: string; employeeId?: string },
+  ) {
+    const stats = await this.getStatistics(currentUser, filters);
+    const criteria = (stats?.template?.sections || []).flatMap((section) => section.items || []);
+    const sections = stats?.template?.sections || [];
+    const header = [
+      'Đơn vị',
+      'Họ và tên',
+      'Tài khoản',
+      'Ngày',
+      ...criteria.map((item) => item.contentName),
+      ...sections.map((section) => `Tổng ${section.sectionName}`),
+      'Tổng cộng',
+    ];
+    const rows = (stats?.rows || []).map((row) => [
+      row.unitName || '',
+      row.employee?.fullName || '',
+      row.employee?.username || '',
+      row.scoreDate || '',
+      ...criteria.map((criterion) => Number(row.scoresByItemCode?.[criterion.itemCode] || 0)),
+      ...sections.map((section) => Number(row.sectionTotals?.[section.sectionCode] || 0)),
+      Number(row.totalScore || 0),
+    ]);
+    const aoa = [header, ...rows];
+    const worksheet = XLSX.utils.aoa_to_sheet(aoa);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'ThongKeChamDiem');
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    const fromDate = String(stats?.filters?.fromDate || '').trim();
+    const toDate = String(stats?.filters?.toDate || '').trim();
+    const fileName = `thong-ke-cham-diem-${fromDate || 'all'}-${toDate || 'all'}.xlsx`;
+    return { buffer, fileName };
   }
 }
