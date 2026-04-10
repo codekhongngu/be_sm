@@ -51,6 +51,20 @@ export class EvaluationsController {
     );
   }
 
+  @Patch(':journalId/form-1/review')
+  @Roles(Role.MANAGER, Role.ADMIN)
+  reviewForm1ByJournalId(
+    @Param('journalId') journalId: string,
+    @Body() dto: UpdateEvaluationDto,
+    @Req() req: any,
+  ) {
+    return this.evaluationsService.updateAwarenessByJournalId(
+      journalId,
+      dto,
+      req.user,
+    );
+  }
+
   @Patch(':journalId/standards')
   @Roles(Role.MANAGER, Role.ADMIN)
   updateStandardsByJournalId(

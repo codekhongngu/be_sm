@@ -36,6 +36,12 @@ export class JournalsController {
     return this.journalsService.submitAwareness(dto, req.user);
   }
 
+  @Post('form-1/daily-recognition')
+  @Roles(Role.EMPLOYEE)
+  submitForm1DailyRecognition(@Body() dto: SubmitAwarenessDto, @Req() req: any) {
+    return this.journalsService.submitAwareness(dto, req.user);
+  }
+
   @Post('eform-standards')
   @Roles(Role.EMPLOYEE)
   submitStandards(@Body() dto: SubmitStandardsDto, @Req() req: any) {

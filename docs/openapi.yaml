@@ -11,6 +11,7 @@ servers:
 tags:
   - name: App
   - name: Auth
+  - name: Behavior
   - name: Catalogs
   - name: Dashboard
   - name: Evaluations
@@ -626,6 +627,85 @@ paths:
             application/json:
               schema:
                 type: object
+  /api/logs/submit:
+    post:
+      tags: [Behavior]
+      summary: Submit behavior log by form type
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitLogRequest"
+      responses:
+        "200":
+          description: Submitted
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/manager/logs/pending:
+    get:
+      tags: [Behavior]
+      summary: Get pending form-2 logs in current week
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Pending logs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  week:
+                    $ref: "#/components/schemas/WeeklyConfig"
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/BehaviorChecklistLog"
+  /api/manager/logs/evaluate/{id}:
+    patch:
+      tags: [Behavior]
+      summary: Evaluate form-2 log
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvaluateBehaviorLogRequest"
+      responses:
+        "200":
+          description: Evaluated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BehaviorChecklistLog"
+  /api/reports/summary/weekly/{weekId}:
+    get:
+      tags: [Behavior]
+      summary: Weekly behavior summary by manager evaluation
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: weekId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Weekly summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeeklyBehaviorSummaryResponse"
 components:
   securitySchemes:
     bearerAuth:
@@ -759,3 +839,177 @@ components:
         isActive:
           type: boolean
       required: [id, code, name, isActive]
+    SubmitLogRequest:
+      type: object
+      properties:
+        formType:
+          type: string
+          enum: [FORM_1, FORM_2, FORM_3, FORM_4, FORM_5, FORM_8]
+        logDate:
+          type: string
+          format: date
+        avoidance:
+          type: string
+        selfLimit:
+          type: string
+        earlyStop:
+          type: string
+        blaming:
+          type: string
+        askedDeepQuestion:
+          type: boolean
+        fullConsultation:
+          type: boolean
+        followedThrough:
+          type: boolean
+        customerMetCount:
+          type: integer
+          minimum: 0
+        employeeNotes:
+          type: string
+        negativeThought:
+          type: string
+        newMindset:
+          type: string
+        behaviorChange:
+          type: string
+        salesActivities:
+          type: array
+          items:
+            type: object
+            properties:
+              customerName:
+                type: string
+              customerIssue:
+                type: string
+              consequence:
+                type: string
+              solutionOffered:
+                type: string
+              valueBasedPricing:
+                type: string
+              result:
+                type: string
+        differentAction:
+          type: string
+        customerImpact:
+          type: string
+        tomorrowLesson:
+          type: string
+        beliefTransformations:
+          type: array
+          items:
+            type: object
+            properties:
+              situation:
+                type: string
+              oldBelief:
+                type: string
+              newChosenBelief:
+                type: string
+              newBehavior:
+                type: string
+              result:
+                type: string
+        situation:
+          type: string
+        oldBelief:
+          type: string
+        newChosenBelief:
+          type: string
+        newBehavior:
+          type: string
+        transformationResult:
+          type: string
+      required: [formType]
+    EvaluateBehaviorLogRequest:
+      type: object
+      properties:
+        mgrEvalDeepQ:
+          type: boolean
+        mgrEvalFullCons:
+          type: boolean
+        mgrEvalFollow:
+          type: boolean
+        managerFeedback:
+          type: string
+      required: [mgrEvalDeepQ, mgrEvalFullCons, mgrEvalFollow]
+    WeeklyConfig:
+      type: object
+      properties:
+        id:
+          type: string
+        weekName:
+          type: string
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+      required: [id, weekName, startDate, endDate]
+    BehaviorChecklistLog:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        logDate:
+          type: string
+          format: date
+        askedDeepQuestion:
+          type: boolean
+        fullConsultation:
+          type: boolean
+        followedThrough:
+          type: boolean
+        customerMetCount:
+          type: integer
+        employeeNotes:
+          type: string
+        managerId:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [PENDING, APPROVED, REJECTED]
+        mgrEvalDeepQ:
+          type: boolean
+          nullable: true
+        mgrEvalFullCons:
+          type: boolean
+          nullable: true
+        mgrEvalFollow:
+          type: boolean
+          nullable: true
+        managerFeedback:
+          type: string
+          nullable: true
+        reviewedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [id, userId, logDate, status]
+    WeeklyBehaviorSummaryResponse:
+      type: object
+      properties:
+        week:
+          $ref: "#/components/schemas/WeeklyConfig"
+        totalDays:
+          type: integer
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              userId:
+                type: string
+              totalCustomerMet:
+                type: string
+              deepQuestionPct:
+                type: string
+              fullConsultationPct:
+                type: string
+              followedThroughPct:
+                type: string

@@ -1,0 +1,118 @@
+API-DESCRIPTION-FILE: 1.0
+PROJECT: sm-backend
+BASE-URL-LOCAL: http://localhost:3001
+AUTH: Bearer JWT
+
+[GROUP] AUTH
+- POST /auth/register
+  PURPOSE: Tạo tài khoản người dùng
+  ROLE: Public
+- POST /auth/login
+  PURPOSE: Đăng nhập lấy accessToken
+  ROLE: Public
+
+[GROUP] HEALTH
+- GET /
+  PURPOSE: Kiểm tra service hoạt động
+  ROLE: Public
+- GET /health/db
+  PURPOSE: Kiểm tra kết nối database
+  ROLE: Public
+
+[GROUP] JOURNALS (MẪU 1 ĐÃ CÓ SẴN)
+- POST /journals/eform-awareness
+  PURPOSE: Nhân viên nộp/cập nhật Mẫu 1
+  ROLE: EMPLOYEE
+- POST /journals/form-1/daily-recognition
+  PURPOSE: Alias của Mẫu 1 (cùng logic eform-awareness)
+  ROLE: EMPLOYEE
+- POST /journals/eform-standards
+  PURPOSE: Nộp nhật ký giữ chuẩn
+  ROLE: EMPLOYEE
+- GET /journals
+  PURPOSE: Lấy danh sách nhật ký
+  ROLE: EMPLOYEE|MANAGER|ADMIN
+- GET /journals/{id}
+  PURPOSE: Lấy chi tiết nhật ký
+  ROLE: EMPLOYEE|MANAGER|ADMIN
+
+[GROUP] EVALUATIONS
+- PATCH /evaluations/{journalId}/awareness
+  PURPOSE: Quản lý chấm phần nhận diện (Mẫu 1)
+  ROLE: MANAGER|ADMIN
+- PATCH /evaluations/{journalId}/form-1/review
+  PURPOSE: Alias review Mẫu 1
+  ROLE: MANAGER|ADMIN
+- PATCH /evaluations/{journalId}/standards
+  PURPOSE: Chấm phần giữ chuẩn
+  ROLE: MANAGER|ADMIN
+- GET /evaluations/pending/list
+  PURPOSE: Danh sách chờ duyệt
+  ROLE: MANAGER|ADMIN
+- GET /evaluations/analytics/weekly
+  PURPOSE: Phân tích tuần
+  ROLE: MANAGER|ADMIN
+
+[GROUP] BEHAVIOR-90D
+- POST /api/logs/submit
+  PURPOSE: Nhân viên submit log FORM_1/2/3/4/5/8
+  ROLE: EMPLOYEE
+  RULE: FORM_2 lưu mới/cập nhật luôn status=PENDING
+  RULE: FORM_2 đã APPROVED thì không cho nhân viên chỉnh sửa
+  RULE: FORM_4 truyền salesActivities (Mảng nhiều hoạt động) thay vì 1 object
+  RULE: FORM_8 truyền beliefTransformations (Mảng nhiều tình huống) thay vì 1 object
+- GET /api/manager/logs/pending
+  PURPOSE: Quản lý lấy log FORM_2 PENDING trong tuần hiện tại
+  ROLE: MANAGER|ADMIN
+- PATCH /api/manager/logs/evaluate/{id}
+  PURPOSE: Quản lý thẩm định FORM_2 bằng mgr_eval_*
+  ROLE: MANAGER|ADMIN
+  RULE: Nếu mgr_eval_deep_q && mgr_eval_full_cons && mgr_eval_follow => APPROVED, ngược lại REJECTED
+- GET /api/reports/summary/weekly/{weekId}
+  PURPOSE: Báo cáo tuần (Mẫu 6) theo kết quả mgr_eval_* của quản lý
+  ROLE: MANAGER|ADMIN
+
+[GROUP] USERS
+- GET /users
+  PURPOSE: Danh sách người dùng
+  ROLE: MANAGER|ADMIN
+- POST /users
+  PURPOSE: Tạo người dùng
+  ROLE: ADMIN
+- PATCH /users/{id}
+  PURPOSE: Cập nhật người dùng
+  ROLE: MANAGER|ADMIN
+- PATCH /users/{id}/reset-password
+  PURPOSE: Reset mật khẩu
+  ROLE: MANAGER|ADMIN
+- PATCH /users/me/change-password
+  PURPOSE: Đổi mật khẩu cá nhân
+  ROLE: EMPLOYEE|MANAGER|ADMIN
+- GET /users/units
+  PURPOSE: Danh sách đơn vị
+  ROLE: MANAGER|ADMIN
+- POST /users/units
+  PURPOSE: Tạo đơn vị
+  ROLE: ADMIN
+
+[GROUP] DASHBOARD
+- GET /dashboard/metrics
+  PURPOSE: Chỉ số dashboard
+  ROLE: ADMIN
+- GET /dashboard/behavior-analytics
+  PURPOSE: Analytics hành vi
+  ROLE: MANAGER|ADMIN
+
+[GROUP] CATALOGS
+- GET /catalogs
+  PURPOSE: Danh sách danh mục
+  ROLE: MANAGER|ADMIN
+- POST /catalogs
+  PURPOSE: Tạo danh mục
+  ROLE: MANAGER|ADMIN
+- PATCH /catalogs/{id}
+  PURPOSE: Cập nhật danh mục
+  ROLE: MANAGER|ADMIN
+- PATCH /catalogs/{id}/deactivate
+  PURPOSE: Ngưng hoạt động danh mục
+  ROLE: MANAGER|ADMIN

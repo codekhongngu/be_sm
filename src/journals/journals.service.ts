@@ -104,6 +104,8 @@ export class JournalsService {
     if (user.role !== Role.EMPLOYEE) {
       throw new ForbiddenException('Chỉ nhân viên được nộp nhật ký');
     }
+    const reportDate = this.normalizeReportDate(createJournalDto.reportDate);
+
     const awareness = {
       avoidance: createJournalDto.avoidance,
       selfLimit: createJournalDto.selfLimit,
@@ -126,6 +128,7 @@ export class JournalsService {
       throw new ForbiddenException('Chỉ nhân viên được nộp nhật ký');
     }
     const reportDate = this.normalizeReportDate(dto.reportDate);
+
     const journal = await this.getOrCreateDailyJournal(user, reportDate);
     if (journal.awarenessSubmittedAt && journal.awarenessUpdateCount >= 1) {
       throw new BadRequestException(
@@ -163,6 +166,7 @@ export class JournalsService {
       throw new ForbiddenException('Chỉ nhân viên được nộp nhật ký');
     }
     const reportDate = this.normalizeReportDate(dto.reportDate);
+
     const journal = await this.getOrCreateDailyJournal(user, reportDate);
     if (journal.standardsSubmittedAt && journal.standardsUpdateCount >= 1) {
       throw new BadRequestException(

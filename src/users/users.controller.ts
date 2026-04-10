@@ -10,6 +10,7 @@ import {
   Post,
   Put,
   Req,
+  Res,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -30,6 +31,7 @@ import { UpdateUserUnitDto } from './dto/update-user-unit.dto';
 import { UsersService } from './users.service';
 import * as XLSX from 'xlsx';
 import { Roles } from 'src/common/decorators/roles.decorator';
+import { Response } from 'express';
 
 @Controller('users')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -342,12 +344,14 @@ export class UsersController {
     const skipped = [];
 
     for (const row of rows) {
-      const username = String(row.username || '').trim();
-      const passwordRaw = String(row.password || '').trim();
-      const fullName = String(row.fullName || '').trim();
-      const unitCode = String(row.unitCode || '').trim();
-      const roleRaw = String(row.role || '').trim().toUpperCase();
-      const telegramChatId = String(row.telegramChatId || '').trim();
+      const username = String(row.username ?? row.userName ?? row.taiKhoan ?? '').trim();
+      const passwordRaw = String(row.password ?? row.matKhau ?? '').trim();
+      const fullName = String(row.fullName ?? row.hoTen ?? row.name ?? '').trim();
+      const unitCode = String(row.unitCode ?? row.maDonVi ?? row.unit ?? '').trim();
+      const unitName = String(row.unitName ?? row.tenDonVi ?? '').trim();
+      const unitId = String(row.unitId ?? row.donViId ?? '').trim();
+      const roleRaw = String(row.role ?? row.vaiTro ?? '').trim().toUpperCase();
+      const telegramChatId = String(row.telegramChatId ?? row.telegram ?? '').trim();
 
       if (!username || !passwordRaw || !fullName) {
         skipped.push({ username, reason: 'Thiếu dữ liệu bắt buộc' });
@@ -362,11 +366,40 @@ export class UsersController {
 
       const unit =
         req.user.role === Role.ADMIN
-          ? await this.usersService.findUnitByCode(unitCode)
+          ? await (async () => {
+              if (unitId) {
+                const byId = await this.usersService.findUnitById(unitId);
+                if (byId) {
+                  return byId;
+                }
+              }
+              if (unitCode) {
+                const byCode =
+                  (await this.usersService.findUnitByCode(unitCode)) ||
+                  (await this.usersService.findUnitByCodeIgnoreCase(unitCode));
+                if (byCode) {
+                  return byCode;
+                }
+              }
+              if (unitName) {
+                const byName = await this.usersService.findUnitByNameIgnoreCase(unitName);
+                if (byName) {
+                  return byName;
+                }
+              }
+              return null;
+            })()
           : await this.usersService.findUnitById(req.user.unitId);
 
       if (!unit) {
-        skipped.push({ username, reason: 'Không tìm thấy đơn vị' });
+        skipped.push({
+          username,
+          reason: `Không tìm thấy đơn vị (unitCode: ${unitCode || '-'}, unitName: ${unitName || '-'})`,
+        });
+        continue;
+      }
+      if (!unit.isActive) {
+        skipped.push({ username, reason: `Đơn vị ${unit.code} đang ngừng hoạt động` });
         continue;
       }
 
@@ -404,5 +437,111 @@ export class UsersController {
       created,
       skipped,
     };
+  }
+
+  @Get('import-excel-template')
+  @Roles(Role.MANAGER, Role.ADMIN)
+  async downloadImportTemplate(@Req() req: any, @Res() res: Response) {
+    const units = await this.usersService.getUnits();
+    const availableUnits =
+      req.user.role === Role.ADMIN
+        ? units.filter((unit) => unit.isActive)
+        : units.filter((unit) => unit.id === req.user.unitId && unit.isActive);
+
+    const sampleUnit = availableUnits[0];
+    const sampleUnitCode = sampleUnit?.code || '';
+    const sampleUnitName = sampleUnit?.name || '';
+
+    const templateRows = [
+      {
+        username: 'nv001',
+        password: '123456',
+        fullName: 'Nguyễn Văn A',
+        unitCode: sampleUnitCode,
+        unitName: sampleUnitName,
+        role: 'EMPLOYEE',
+        telegramChatId: '',
+      },
+      {
+        username: 'nv002',
+        password: '123456',
+        fullName: 'Trần Thị B',
+        unitCode: sampleUnitCode,
+        unitName: sampleUnitName,
+        role: 'EMPLOYEE',
+        telegramChatId: '',
+      },
+      {
+        username: 'ql001',
+        password: '123456',
+        fullName: 'Lê Văn C',
+        unitCode: sampleUnitCode,
+        unitName: sampleUnitName,
+        role: req.user.role === Role.MANAGER ? 'EMPLOYEE' : 'MANAGER',
+        telegramChatId: '',
+      },
+    ];
+
+    const unitRows = availableUnits.map((unit) => ({
+      unitId: unit.id,
+      unitCode: unit.code,
+      unitName: unit.name,
+      isActive: unit.isActive ? 'TRUE' : 'FALSE',
+    }));
+
+    const guideRows = [
+      {
+        field: 'username',
+        required: 'YES',
+        description: 'Tên đăng nhập duy nhất',
+      },
+      {
+        field: 'password',
+        required: 'YES',
+        description: 'Mật khẩu ban đầu',
+      },
+      {
+        field: 'fullName',
+        required: 'YES',
+        description: 'Họ tên người dùng',
+      },
+      {
+        field: 'unitCode',
+        required: req.user.role === Role.ADMIN ? 'YES' : 'OPTIONAL',
+        description: 'Mã đơn vị. ADMIN import theo đơn vị trong file',
+      },
+      {
+        field: 'unitName',
+        required: 'OPTIONAL',
+        description: 'Tên đơn vị để fallback khi thiếu unitCode',
+      },
+      {
+        field: 'role',
+        required: 'OPTIONAL',
+        description: 'EMPLOYEE | MANAGER | ADMIN',
+      },
+      {
+        field: 'telegramChatId',
+        required: 'OPTIONAL',
+        description: 'Chat ID Telegram của user',
+      },
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    const templateSheet = XLSX.utils.json_to_sheet(templateRows);
+    const unitSheet = XLSX.utils.json_to_sheet(unitRows);
+    const guideSheet = XLSX.utils.json_to_sheet(guideRows);
+
+    XLSX.utils.book_append_sheet(workbook, templateSheet, 'template');
+    XLSX.utils.book_append_sheet(workbook, unitSheet, 'units');
+    XLSX.utils.book_append_sheet(workbook, guideSheet, 'guide');
+
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', 'attachment; filename="user-import-template.xlsx"');
+    return res.send(buffer);
   }
 }

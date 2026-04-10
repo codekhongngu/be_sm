@@ -18,6 +18,17 @@ import { Journal } from './journals/entities/journal.entity';
 import { Evaluation } from './evaluations/entities/evaluation.entity';
 import { JournalHighIncomeEform } from './journals/entities/journal-high-income-eform.entity';
 import { CatalogItem } from './catalogs/entities/catalog-item.entity';
+import { BehaviorModule } from './behavior/behavior.module';
+import { WeeklyConfig } from './behavior/entities/weekly-config.entity';
+import { BehaviorChecklistLog } from './behavior/entities/behavior-checklist-log.entity';
+import { MindsetLog } from './behavior/entities/mindset-log.entity';
+import { SalesActivityReport } from './behavior/entities/sales-activity-report.entity';
+import { EndOfDayLog } from './behavior/entities/end-of-day-log.entity';
+import { BeliefTransformationLog } from './behavior/entities/belief-transformation-log.entity';
+import { ManagerDailyScoresModule } from './manager-daily-scores/manager-daily-scores.module';
+import { ManagerDailyScoreCriterion } from './manager-daily-scores/entities/manager-daily-score-criterion.entity';
+import { ManagerDailyScoreSheet } from './manager-daily-scores/entities/manager-daily-score-sheet.entity';
+import { ManagerDailyScoreItem } from './manager-daily-scores/entities/manager-daily-score-item.entity';
 
 @Module({
   imports: [
@@ -43,7 +54,23 @@ import { CatalogItem } from './catalogs/entities/catalog-item.entity';
                 password: configService.get<string>('DB_PASSWORD', 'postgres'),
                 database: configService.get<string>('DB_NAME', 'sales_behavior'),
               }),
-          entities: [Unit, User, Journal, Evaluation, JournalHighIncomeEform, CatalogItem],
+          entities: [
+            Unit,
+            User,
+            Journal,
+            Evaluation,
+            JournalHighIncomeEform,
+            CatalogItem,
+            WeeklyConfig,
+            BehaviorChecklistLog,
+            MindsetLog,
+            SalesActivityReport,
+            EndOfDayLog,
+            BeliefTransformationLog,
+            ManagerDailyScoreCriterion,
+            ManagerDailyScoreSheet,
+            ManagerDailyScoreItem,
+          ],
           synchronize: dbSync,
           ...(requireSsl
             ? { ssl: { rejectUnauthorized: false }, extra: { ssl: { rejectUnauthorized: false } } }
@@ -57,6 +84,8 @@ import { CatalogItem } from './catalogs/entities/catalog-item.entity';
     EvaluationsModule,
     DashboardModule,
     CatalogsModule,
+    BehaviorModule,
+    ManagerDailyScoresModule,
     TelegramModule,
     CommonModule,
   ],

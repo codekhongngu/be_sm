@@ -5,7 +5,16 @@ const { spawnSync } = require('child_process');
 const dbUser = process.env.DB_USER || 'postgres';
 const dbName = process.env.DB_NAME || 'sales_behavior';
 
-const sqlFiles = ['sql/init/001_init_schema.sql', 'sql/init/002_seed_admin.sql'];
+const sqlFiles = [
+  'sql/init/001_init_schema.sql',
+  'sql/init/003_behavior_90d_schema.sql',
+  'sql/init/002_seed_admin.sql',
+  'sql/init/004_add_log_date.sql',
+  'sql/init/006_allow_multiple_rows_per_day.sql',
+  'sql/init/005_add_behavior_indexes.sql',
+  'sql/init/005_form4_form8_multi_rows.sql',
+  'sql/init/007_add_system_configs.sql',
+];
 
 const run = (command, args, options = {}) => {
   const result = spawnSync(command, args, {

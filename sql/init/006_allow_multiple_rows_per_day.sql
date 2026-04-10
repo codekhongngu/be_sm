@@ -1,0 +1,6 @@
+ALTER TABLE sales_activity_reports
+DROP CONSTRAINT IF EXISTS sales_activity_reports_user_id_log_date_key;
+
+ALTER TABLE belief_transformation_logs
+DROP CONSTRAINT IF EXISTS belief_transformation_logs_user_id_log_date_key;
+

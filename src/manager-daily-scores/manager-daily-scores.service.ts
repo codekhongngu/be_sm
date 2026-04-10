@@ -1,0 +1,485 @@
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Role } from 'src/common/enums/role.enum';
+import { User } from 'src/users/entities/user.entity';
+import { Repository } from 'typeorm';
+import { SubmitManagerDailyScoreDto } from './dto/submit-manager-daily-score.dto';
+import { ManagerDailyScoreCriterion } from './entities/manager-daily-score-criterion.entity';
+import { ManagerDailyScoreItem } from './entities/manager-daily-score-item.entity';
+import { ManagerDailyScoreSheet } from './entities/manager-daily-score-sheet.entity';
+
+const DEFAULT_CRITERIA = [
+  ['LEARNING', 'I. Học tập, rèn luyện', 1, 'LEARNING_TRAINING_PARTICIPATION', 1, '1', 'Tham gia đào tạo, giao ban hằng ngày', 5],
+  ['LEARNING', 'I. Học tập, rèn luyện', 1, 'LEARNING_WORKBOOK_EXERCISE', 2, '2.1', 'Làm bài tập Sổ tay thực hành', 4],
+  ['LEARNING', 'I. Học tập, rèn luyện', 1, 'LEARNING_MULTIPLE_CHOICE', 3, '2.2', 'Làm bài tập trắc nghiệm', 3],
+  ['LEARNING', 'I. Học tập, rèn luyện', 1, 'LEARNING_STAGE_EXERCISE', 4, '2.3', 'Chủ động làm bài tập theo giai đoạn', 3],
+  ['BEHAVIOR', 'II. Thực hành hành vi', 2, 'BEHAVIOR_SALES_PLAN', 5, '1', 'Lập kế hoạch bán hàng (chương trình hành động cá nhân)', 3],
+  ['BEHAVIOR', 'II. Thực hành hành vi', 2, 'BEHAVIOR_PREPARE_CONSULT', 6, '2', 'Chuẩn bị câu hỏi tư vấn thu nhập cao cho từng đối tượng khách hàng', 2],
+  ['BEHAVIOR', 'II. Thực hành hành vi', 2, 'BEHAVIOR_CUSTOMERS_CONTACTED', 7, '3', 'Số khách hàng tiếp cận', 10],
+  ['BEHAVIOR', 'II. Thực hành hành vi', 2, 'BEHAVIOR_OLD_CUSTOMERS_CONSULTED', 8, '4', 'Số khách hàng cũ tư vấn (KH theo lịch hẹn/ KH hiện hữu)', 4],
+  ['BEHAVIOR', 'II. Thực hành hành vi', 2, 'BEHAVIOR_SUCCESSFUL_CARE_CALLS', 9, '5', 'Số cuộc gọi CSKH thành công (TT CSKH)', 10],
+  ['BEHAVIOR', 'II. Thực hành hành vi', 2, 'BEHAVIOR_DAILY_CHECKLIST', 10, '6', 'Ghi nhật ký bán hàng, checklist hành vi', 7],
+  ['BEHAVIOR', 'II. Thực hành hành vi', 2, 'BEHAVIOR_DIRECTOR_EVALUATION', 11, '7', 'Giám đốc đánh giá', 9],
+  ['PERFORMANCE', 'III. Nâng cao hiệu quả hoạt động', 3, 'PERFORMANCE_RENEWAL_SERVICES', 12, '1', 'Số dịch vụ phát triển mới/gia hạn/nâng gói hàng chu kỳ', 10],
+  ['PERFORMANCE', 'III. Nâng cao hiệu quả hoạt động', 3, 'PERFORMANCE_NEW_PTM_PACKAGES', 13, '2', 'Số gói ca PTM mới', 4],
+  ['PERFORMANCE', 'III. Nâng cao hiệu quả hoạt động', 3, 'PERFORMANCE_CLOSE_RATE', 14, '3', 'Tỷ lệ chốt dịch vụ', 4],
+  ['PERFORMANCE', 'III. Nâng cao hiệu quả hoạt động', 3, 'PERFORMANCE_REVENUE', 15, '4', 'Doanh thu PTM/GH cá nhân', 30],
+  ['PERFORMANCE', 'III. Nâng cao hiệu quả hoạt động', 3, 'PERFORMANCE_RETURNING_REFERRED', 16, '5', 'Số KH quay lại giới thiệu KH mới', 2],
+] as const;
+
+@Injectable()
+export class ManagerDailyScoresService {
+  constructor(
+    @InjectRepository(User)
+    private readonly usersRepository: Repository<User>,
+    @InjectRepository(ManagerDailyScoreCriterion)
+    private readonly criteriaRepository: Repository<ManagerDailyScoreCriterion>,
+    @InjectRepository(ManagerDailyScoreSheet)
+    private readonly sheetsRepository: Repository<ManagerDailyScoreSheet>,
+    @InjectRepository(ManagerDailyScoreItem)
+    private readonly itemsRepository: Repository<ManagerDailyScoreItem>,
+  ) {}
+
+  private toDateKey(value: string) {
+    if (!value) {
+      return '';
+    }
+    return value.slice(0, 10);
+  }
+
+  private normalizeNumber(value: string | number) {
+    const parsed = Number(value || 0);
+    return Number(parsed.toFixed(2));
+  }
+
+  private async getEmployeeByScope(currentUser: any, employeeId: string) {
+    const employee = await this.usersRepository.findOne(employeeId);
+    if (!employee || employee.role !== Role.EMPLOYEE) {
+      throw new BadRequestException('Không tìm thấy nhân viên hợp lệ');
+    }
+    if (currentUser.role === Role.MANAGER && employee.unitId !== currentUser.unitId) {
+      throw new ForbiddenException('Chỉ được nhập điểm cho nhân viên cùng đơn vị');
+    }
+    return employee;
+  }
+
+  private groupCriteria(criteria: ManagerDailyScoreCriterion[]) {
+    const sectionsMap = new Map<
+      string,
+      {
+        sectionCode: string;
+        sectionName: string;
+        sectionSortOrder: number;
+        maxScore: number;
+        items: Array<{
+          id: string;
+          itemCode: string;
+          sttLabel: string;
+          contentName: string;
+          maxScore: number;
+          sectionCode: string;
+        }>;
+      }
+    >();
+
+    criteria.forEach((criterion) => {
+      const section = sectionsMap.get(criterion.sectionCode) || {
+        sectionCode: criterion.sectionCode,
+        sectionName: criterion.sectionName,
+        sectionSortOrder: criterion.sectionSortOrder,
+        maxScore: 0,
+        items: [],
+      };
+      const itemMaxScore = this.normalizeNumber(criterion.maxScore);
+      section.maxScore += itemMaxScore;
+      section.items.push({
+        id: criterion.id,
+        itemCode: criterion.itemCode,
+        sttLabel: criterion.sttLabel,
+        contentName: criterion.contentName,
+        maxScore: itemMaxScore,
+        sectionCode: criterion.sectionCode,
+      });
+      sectionsMap.set(criterion.sectionCode, section);
+    });
+
+    const sections = [...sectionsMap.values()]
+      .sort((a, b) => a.sectionSortOrder - b.sectionSortOrder)
+      .map((section) => ({
+        ...section,
+        maxScore: Number(section.maxScore.toFixed(2)),
+        items: section.items.sort((a, b) => a.sttLabel.localeCompare(b.sttLabel, 'vi')),
+      }));
+
+    return sections;
+  }
+
+  private async getActiveCriteria() {
+    let criteria = await this.criteriaRepository.find({
+      where: { isActive: true },
+      order: {
+        sectionSortOrder: 'ASC',
+        itemSortOrder: 'ASC',
+      },
+    });
+    if (criteria.length > 0) {
+      return criteria;
+    }
+    const inserts = DEFAULT_CRITERIA.map((item) =>
+      this.criteriaRepository.create({
+        sectionCode: item[0],
+        sectionName: item[1],
+        sectionSortOrder: item[2],
+        itemCode: item[3],
+        itemSortOrder: item[4],
+        sttLabel: item[5],
+        contentName: item[6],
+        maxScore: String(item[7]),
+        isActive: true,
+      }),
+    );
+    await this.criteriaRepository.save(inserts);
+    criteria = await this.criteriaRepository.find({
+      where: { isActive: true },
+      order: {
+        sectionSortOrder: 'ASC',
+        itemSortOrder: 'ASC',
+      },
+    });
+    return criteria;
+  }
+
+  async getCriteria() {
+    const criteria = await this.getActiveCriteria();
+
+    const sections = this.groupCriteria(criteria);
+    const totalMaxScore = Number(
+      sections.reduce((sum, section) => sum + section.maxScore, 0).toFixed(2),
+    );
+
+    return {
+      criteria: criteria.map((item) => ({
+        id: item.id,
+        sectionCode: item.sectionCode,
+        sectionName: item.sectionName,
+        itemCode: item.itemCode,
+        sttLabel: item.sttLabel,
+        contentName: item.contentName,
+        maxScore: this.normalizeNumber(item.maxScore),
+      })),
+      sections,
+      totalMaxScore,
+    };
+  }
+
+  async getEmployees(currentUser: any, keyword?: string) {
+    const qb = this.usersRepository
+      .createQueryBuilder('user')
+      .leftJoinAndSelect('user.unit', 'unit')
+      .where('user.role = :role', { role: Role.EMPLOYEE });
+
+    if (currentUser.role === Role.MANAGER) {
+      qb.andWhere('user.unitId = :unitId', { unitId: currentUser.unitId });
+    }
+
+    const normalizedKeyword = String(keyword || '').trim().toLowerCase();
+    if (normalizedKeyword) {
+      qb.andWhere(
+        '(LOWER(user.fullName) LIKE :keyword OR LOWER(user.username) LIKE :keyword)',
+        { keyword: `%${normalizedKeyword}%` },
+      );
+    }
+
+    const users = await qb.orderBy('user.fullName', 'ASC').getMany();
+    return users.map((user) => ({
+      id: user.id,
+      fullName: user.fullName,
+      username: user.username,
+      unitId: user.unitId,
+      unitName: user.unit?.name || '',
+    }));
+  }
+
+  async getEntry(currentUser: any, employeeId: string, scoreDate: string) {
+    if (!employeeId || !scoreDate) {
+      throw new BadRequestException('Thiếu employeeId hoặc scoreDate');
+    }
+    const employee = await this.getEmployeeByScope(currentUser, employeeId);
+    const normalizedDate = this.toDateKey(scoreDate);
+    if (!normalizedDate) {
+      throw new BadRequestException('scoreDate không hợp lệ');
+    }
+
+    const sheet = await this.sheetsRepository.findOne({
+      where: {
+        employeeId,
+        scoreDate: normalizedDate,
+      },
+    });
+
+    if (!sheet) {
+      return {
+        employee: {
+          id: employee.id,
+          fullName: employee.fullName,
+          username: employee.username,
+          unitId: employee.unitId,
+          unitName: employee.unit?.name || '',
+        },
+        sheet: null,
+      };
+    }
+
+    const items = await this.itemsRepository
+      .createQueryBuilder('item')
+      .leftJoinAndSelect('item.criterion', 'criterion')
+      .where('item.sheetId = :sheetId', { sheetId: sheet.id })
+      .orderBy('criterion.sectionSortOrder', 'ASC')
+      .addOrderBy('criterion.itemSortOrder', 'ASC')
+      .getMany();
+
+    return {
+      employee: {
+        id: employee.id,
+        fullName: employee.fullName,
+        username: employee.username,
+        unitId: employee.unitId,
+        unitName: employee.unit?.name || '',
+      },
+      sheet: {
+        id: sheet.id,
+        scoreDate: sheet.scoreDate,
+        managerId: sheet.managerId,
+        totalScore: this.normalizeNumber(sheet.totalScore),
+        items: items.map((item) => ({
+          id: item.id,
+          criteriaId: item.criteriaId,
+          requirementNote: item.requirementNote,
+          score: this.normalizeNumber(item.score),
+        })),
+      },
+    };
+  }
+
+  async submitEntry(currentUser: any, dto: SubmitManagerDailyScoreDto) {
+    const employee = await this.getEmployeeByScope(currentUser, dto.employeeId);
+    const normalizedDate = this.toDateKey(dto.scoreDate);
+    if (!normalizedDate) {
+      throw new BadRequestException('scoreDate không hợp lệ');
+    }
+
+    const activeCriteria = await this.getActiveCriteria();
+    if (!activeCriteria.length) {
+      throw new BadRequestException('Chưa có cấu hình tiêu chí chấm điểm');
+    }
+
+    const criteriaMap = new Map(activeCriteria.map((item) => [item.id, item]));
+    const payloadMap = new Map(dto.items.map((item) => [item.criteriaId, item]));
+
+    if (payloadMap.size !== activeCriteria.length) {
+      throw new BadRequestException('Vui lòng nhập đủ điểm cho toàn bộ tiêu chí');
+    }
+
+    for (const criterion of activeCriteria) {
+      const payloadItem = payloadMap.get(criterion.id);
+      if (!payloadItem) {
+        throw new BadRequestException(`Thiếu điểm cho tiêu chí ${criterion.contentName}`);
+      }
+      if (!String(payloadItem.requirementNote || '').trim()) {
+        throw new BadRequestException(
+          `Ghi chú yêu cầu là bắt buộc tại tiêu chí ${criterion.contentName}`,
+        );
+      }
+      const maxScore = this.normalizeNumber(criterion.maxScore);
+      if (payloadItem.score > maxScore) {
+        throw new BadRequestException(
+          `Điểm tiêu chí ${criterion.contentName} không được vượt quá ${maxScore}`,
+        );
+      }
+    }
+
+    let sheet = await this.sheetsRepository.findOne({
+      where: {
+        employeeId: employee.id,
+        scoreDate: normalizedDate,
+      },
+    });
+
+    if (!sheet) {
+      sheet = this.sheetsRepository.create({
+        employeeId: employee.id,
+        managerId: currentUser.sub || currentUser.id,
+        unitId: employee.unitId,
+        scoreDate: normalizedDate,
+      });
+    } else {
+      sheet.managerId = currentUser.sub || currentUser.id;
+    }
+
+    const itemsPayload = [...payloadMap.values()];
+    const totalScore = Number(
+      itemsPayload.reduce((sum, item) => sum + Number(item.score || 0), 0).toFixed(2),
+    );
+    sheet.totalScore = String(totalScore);
+    const savedSheet = await this.sheetsRepository.save(sheet);
+
+    await this.itemsRepository.delete({ sheetId: savedSheet.id });
+
+    const itemEntities = itemsPayload.map((item) =>
+      this.itemsRepository.create({
+        sheetId: savedSheet.id,
+        criteriaId: item.criteriaId,
+        requirementNote: String(item.requirementNote || '').trim(),
+        score: String(Number(item.score || 0)),
+      }),
+    );
+
+    await this.itemsRepository.save(itemEntities);
+
+    const detailedItems = itemEntities
+      .map((item) => {
+        const criterion = criteriaMap.get(item.criteriaId);
+        return {
+          criteriaId: item.criteriaId,
+          itemCode: criterion?.itemCode || '',
+          contentName: criterion?.contentName || '',
+          score: this.normalizeNumber(item.score),
+          maxScore: criterion ? this.normalizeNumber(criterion.maxScore) : 0,
+          requirementNote: item.requirementNote,
+        };
+      })
+      .sort((a, b) => a.itemCode.localeCompare(b.itemCode, 'vi'));
+
+    return {
+      id: savedSheet.id,
+      scoreDate: savedSheet.scoreDate,
+      employee: {
+        id: employee.id,
+        fullName: employee.fullName,
+        username: employee.username,
+        unitId: employee.unitId,
+      },
+      totalScore,
+      totalMaxScore: Number(
+        activeCriteria
+          .reduce((sum, criterion) => sum + this.normalizeNumber(criterion.maxScore), 0)
+          .toFixed(2),
+      ),
+      items: detailedItems,
+    };
+  }
+
+  async getStatistics(
+    currentUser: any,
+    filters: { fromDate?: string; toDate?: string; employeeId?: string },
+  ) {
+    const criteria = await this.getActiveCriteria();
+
+    const qb = this.sheetsRepository
+      .createQueryBuilder('sheet')
+      .leftJoinAndSelect('sheet.employee', 'employee')
+      .leftJoinAndSelect('employee.unit', 'employeeUnit')
+      .leftJoinAndSelect('sheet.manager', 'manager')
+      .leftJoinAndSelect('sheet.items', 'items')
+      .leftJoinAndSelect('items.criterion', 'criterion');
+
+    const fromDate = this.toDateKey(filters.fromDate || '');
+    const toDate = this.toDateKey(filters.toDate || '');
+
+    if (fromDate) {
+      qb.andWhere('sheet.scoreDate >= :fromDate', { fromDate });
+    }
+    if (toDate) {
+      qb.andWhere('sheet.scoreDate <= :toDate', { toDate });
+    }
+
+    if (filters.employeeId) {
+      const employee = await this.getEmployeeByScope(currentUser, filters.employeeId);
+      qb.andWhere('sheet.employeeId = :employeeId', { employeeId: employee.id });
+    } else if (currentUser.role === Role.MANAGER) {
+      qb.andWhere('sheet.unitId = :unitId', { unitId: currentUser.unitId });
+    }
+
+    const sheets = await qb
+      .orderBy('sheet.scoreDate', 'DESC')
+      .addOrderBy('employee.fullName', 'ASC')
+      .getMany();
+
+    const sections = this.groupCriteria(criteria);
+    const sectionItemCodes = new Map(
+      sections.map((section) => [section.sectionCode, section.items.map((item) => item.itemCode)]),
+    );
+
+    const rows = sheets.map((sheet) => {
+      const scoresByItemCode: Record<string, number> = {};
+      const notesByItemCode: Record<string, string> = {};
+
+      (sheet.items || []).forEach((item) => {
+        const itemCode = item.criterion?.itemCode;
+        if (!itemCode) {
+          return;
+        }
+        scoresByItemCode[itemCode] = this.normalizeNumber(item.score);
+        notesByItemCode[itemCode] = item.requirementNote || '';
+      });
+
+      const sectionTotals: Record<string, number> = {};
+      sections.forEach((section) => {
+        const codes = sectionItemCodes.get(section.sectionCode) || [];
+        const sum = codes.reduce((acc, code) => acc + Number(scoresByItemCode[code] || 0), 0);
+        sectionTotals[section.sectionCode] = Number(sum.toFixed(2));
+      });
+
+      return {
+        id: sheet.id,
+        scoreDate: sheet.scoreDate,
+        unitName: sheet.employee?.unit?.name || '',
+        employee: {
+          id: sheet.employee?.id || '',
+          fullName: sheet.employee?.fullName || '',
+          username: sheet.employee?.username || '',
+        },
+        manager: {
+          id: sheet.manager?.id || '',
+          fullName: sheet.manager?.fullName || '',
+        },
+        scoresByItemCode,
+        notesByItemCode,
+        sectionTotals,
+        totalScore: this.normalizeNumber(sheet.totalScore),
+      };
+    });
+
+    const totalMaxScore = Number(
+      sections.reduce((sum, section) => sum + section.maxScore, 0).toFixed(2),
+    );
+
+    return {
+      filters: {
+        fromDate: fromDate || null,
+        toDate: toDate || null,
+        employeeId: filters.employeeId || null,
+      },
+      template: {
+        sections,
+        totalMaxScore,
+      },
+      rows,
+      totals: {
+        totalRows: rows.length,
+        averageScore:
+          rows.length === 0
+            ? 0
+            : Number(
+                (
+                  rows.reduce((sum, row) => sum + Number(row.totalScore || 0), 0) / rows.length
+                ).toFixed(2),
+              ),
+      },
+    };
+  }
+}

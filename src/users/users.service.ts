@@ -45,6 +45,20 @@ export class UsersService {
     return this.unitsRepository.findOne({ code });
   }
 
+  findUnitByCodeIgnoreCase(code: string) {
+    return this.unitsRepository
+      .createQueryBuilder('unit')
+      .where('LOWER(unit.code) = LOWER(:code)', { code })
+      .getOne();
+  }
+
+  findUnitByNameIgnoreCase(name: string) {
+    return this.unitsRepository
+      .createQueryBuilder('unit')
+      .where('LOWER(unit.name) = LOWER(:name)', { name })
+      .getOne();
+  }
+
   getUnits() {
     return this.unitsRepository.find({
       relations: ['parentUnit'],
