@@ -2,12 +2,15 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Role } from 'src/common/enums/role.enum';
 import { User } from 'src/users/entities/user.entity';
 import { Repository } from 'typeorm';
+import { CreateManagerDailyScoreCriterionDto } from './dto/create-manager-daily-score-criterion.dto';
 import { SubmitManagerDailyScoreDto } from './dto/submit-manager-daily-score.dto';
+import { UpdateManagerDailyScoreCriterionDto } from './dto/update-manager-daily-score-criterion.dto';
 import { ManagerDailyScoreCriterion } from './entities/manager-daily-score-criterion.entity';
 import { ManagerDailyScoreItem } from './entities/manager-daily-score-item.entity';
 import { ManagerDailyScoreSheet } from './entities/manager-daily-score-sheet.entity';
@@ -21,7 +24,7 @@ const DEFAULT_CRITERIA = [
   ['BEHAVIOR', 'II. Thực hành hành vi', 2, 'BEHAVIOR_PREPARE_CONSULT', 6, '2', 'Chuẩn bị câu hỏi tư vấn thu nhập cao cho từng đối tượng khách hàng', 2],
   ['BEHAVIOR', 'II. Thực hành hành vi', 2, 'BEHAVIOR_CUSTOMERS_CONTACTED', 7, '3', 'Số khách hàng tiếp cận', 10],
   ['BEHAVIOR', 'II. Thực hành hành vi', 2, 'BEHAVIOR_OLD_CUSTOMERS_CONSULTED', 8, '4', 'Số khách hàng cũ tư vấn (KH theo lịch hẹn/ KH hiện hữu)', 4],
-  ['BEHAVIOR', 'II. Thực hành hành vi', 2, 'BEHAVIOR_SUCCESSFUL_CARE_CALLS', 9, '5', 'Số cuộc gọi CSKH thành công (TT CSKH)', 10],
+  ['BEHAVIOR', 'II. Thực hành hành vi', 2, 'BEHAVIOR_SUCCESSFUL_CARE_CALLS', 9, '5', 'Số cuộc gọi CSKH thành công (chỉ dành riêng cho TT CSKH)', 10],
   ['BEHAVIOR', 'II. Thực hành hành vi', 2, 'BEHAVIOR_DAILY_CHECKLIST', 10, '6', 'Ghi nhật ký bán hàng, checklist hành vi', 7],
   ['BEHAVIOR', 'II. Thực hành hành vi', 2, 'BEHAVIOR_DIRECTOR_EVALUATION', 11, '7', 'Giám đốc đánh giá', 9],
   ['PERFORMANCE', 'III. Nâng cao hiệu quả hoạt động', 3, 'PERFORMANCE_RENEWAL_SERVICES', 12, '1', 'Số dịch vụ phát triển mới/gia hạn/nâng gói hàng chu kỳ', 10],
@@ -65,6 +68,21 @@ export class ManagerDailyScoresService {
       throw new ForbiddenException('Chỉ được nhập điểm cho nhân viên cùng đơn vị');
     }
     return employee;
+  }
+
+  private toCriterionResponse(item: ManagerDailyScoreCriterion) {
+    return {
+      id: item.id,
+      sectionCode: item.sectionCode,
+      sectionName: item.sectionName,
+      sectionSortOrder: item.sectionSortOrder,
+      itemCode: item.itemCode,
+      itemSortOrder: item.itemSortOrder,
+      sttLabel: item.sttLabel,
+      contentName: item.contentName,
+      maxScore: this.normalizeNumber(item.maxScore),
+      isActive: item.isActive,
+    };
   }
 
   private groupCriteria(criteria: ManagerDailyScoreCriterion[]) {
@@ -163,17 +181,96 @@ export class ManagerDailyScoresService {
 
     return {
       criteria: criteria.map((item) => ({
-        id: item.id,
-        sectionCode: item.sectionCode,
-        sectionName: item.sectionName,
-        itemCode: item.itemCode,
-        sttLabel: item.sttLabel,
-        contentName: item.contentName,
-        maxScore: this.normalizeNumber(item.maxScore),
+        ...this.toCriterionResponse(item),
       })),
       sections,
       totalMaxScore,
     };
+  }
+
+  async getCriteriaForAdmin() {
+    const criteria = await this.criteriaRepository.find({
+      order: {
+        sectionSortOrder: 'ASC',
+        itemSortOrder: 'ASC',
+      },
+    });
+    return criteria.map((item) => this.toCriterionResponse(item));
+  }
+
+  async createCriterion(dto: CreateManagerDailyScoreCriterionDto) {
+    const itemCode = String(dto.itemCode || '').trim().toUpperCase();
+    const existed = await this.criteriaRepository.findOne({ itemCode });
+    if (existed) {
+      throw new BadRequestException('itemCode đã tồn tại');
+    }
+    const criterion = this.criteriaRepository.create({
+      sectionCode: String(dto.sectionCode || '').trim().toUpperCase(),
+      sectionName: String(dto.sectionName || '').trim(),
+      sectionSortOrder: Number(dto.sectionSortOrder || 0),
+      itemCode,
+      itemSortOrder: Number(dto.itemSortOrder || 0),
+      sttLabel: String(dto.sttLabel || '').trim(),
+      contentName: String(dto.contentName || '').trim(),
+      maxScore: String(Number(dto.maxScore || 0)),
+      isActive: dto.isActive !== false,
+    });
+    const saved = await this.criteriaRepository.save(criterion);
+    return this.toCriterionResponse(saved);
+  }
+
+  async updateCriterion(id: string, dto: UpdateManagerDailyScoreCriterionDto) {
+    const criterion = await this.criteriaRepository.findOne(id);
+    if (!criterion) {
+      throw new NotFoundException('Không tìm thấy tiêu chí');
+    }
+    if (dto.itemCode !== undefined) {
+      const itemCode = String(dto.itemCode || '').trim().toUpperCase();
+      if (!itemCode) {
+        throw new BadRequestException('itemCode không hợp lệ');
+      }
+      const duplicate = await this.criteriaRepository.findOne({ itemCode });
+      if (duplicate && duplicate.id !== criterion.id) {
+        throw new BadRequestException('itemCode đã tồn tại');
+      }
+      criterion.itemCode = itemCode;
+    }
+    if (dto.sectionCode !== undefined) {
+      criterion.sectionCode = String(dto.sectionCode || '').trim().toUpperCase();
+    }
+    if (dto.sectionName !== undefined) {
+      criterion.sectionName = String(dto.sectionName || '').trim();
+    }
+    if (dto.sectionSortOrder !== undefined) {
+      criterion.sectionSortOrder = Number(dto.sectionSortOrder || 0);
+    }
+    if (dto.itemSortOrder !== undefined) {
+      criterion.itemSortOrder = Number(dto.itemSortOrder || 0);
+    }
+    if (dto.sttLabel !== undefined) {
+      criterion.sttLabel = String(dto.sttLabel || '').trim();
+    }
+    if (dto.contentName !== undefined) {
+      criterion.contentName = String(dto.contentName || '').trim();
+    }
+    if (dto.maxScore !== undefined) {
+      criterion.maxScore = String(Number(dto.maxScore || 0));
+    }
+    if (dto.isActive !== undefined) {
+      criterion.isActive = !!dto.isActive;
+    }
+    const saved = await this.criteriaRepository.save(criterion);
+    return this.toCriterionResponse(saved);
+  }
+
+  async deleteCriterion(id: string) {
+    const criterion = await this.criteriaRepository.findOne(id);
+    if (!criterion) {
+      throw new NotFoundException('Không tìm thấy tiêu chí');
+    }
+    criterion.isActive = false;
+    await this.criteriaRepository.save(criterion);
+    return { success: true };
   }
 
   async getEmployees(currentUser: any, keyword?: string) {

@@ -1,8 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   Req,
@@ -12,7 +14,9 @@ import { Roles } from 'src/common/decorators/roles.decorator';
 import { Role } from 'src/common/enums/role.enum';
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
 import { RolesGuard } from 'src/common/guards/roles.guard';
+import { CreateManagerDailyScoreCriterionDto } from './dto/create-manager-daily-score-criterion.dto';
 import { SubmitManagerDailyScoreDto } from './dto/submit-manager-daily-score.dto';
+import { UpdateManagerDailyScoreCriterionDto } from './dto/update-manager-daily-score-criterion.dto';
 import { ManagerDailyScoresService } from './manager-daily-scores.service';
 
 @Controller('manager-daily-scores')
@@ -24,6 +28,30 @@ export class ManagerDailyScoresController {
   @Roles(Role.MANAGER, Role.ADMIN)
   getCriteria() {
     return this.managerDailyScoresService.getCriteria();
+  }
+
+  @Get('admin/criteria')
+  @Roles(Role.ADMIN)
+  getCriteriaForAdmin() {
+    return this.managerDailyScoresService.getCriteriaForAdmin();
+  }
+
+  @Post('admin/criteria')
+  @Roles(Role.ADMIN)
+  createCriterion(@Body() dto: CreateManagerDailyScoreCriterionDto) {
+    return this.managerDailyScoresService.createCriterion(dto);
+  }
+
+  @Patch('admin/criteria/:id')
+  @Roles(Role.ADMIN)
+  updateCriterion(@Param('id') id: string, @Body() dto: UpdateManagerDailyScoreCriterionDto) {
+    return this.managerDailyScoresService.updateCriterion(id, dto);
+  }
+
+  @Delete('admin/criteria/:id')
+  @Roles(Role.ADMIN)
+  deleteCriterion(@Param('id') id: string) {
+    return this.managerDailyScoresService.deleteCriterion(id);
   }
 
   @Get('employees')
