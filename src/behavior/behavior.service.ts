@@ -14,16 +14,25 @@ import {
   BehaviorChecklistStatus,
 } from './entities/behavior-checklist-log.entity';
 import { BeliefTransformationLog } from './entities/belief-transformation-log.entity';
+import { CareerCommitmentLog } from './entities/career-commitment-log.entity';
+import { DailyFormEditLog } from './entities/daily-form-edit-log.entity';
+import { DailyFormReview } from './entities/daily-form-review.entity';
 import { EndOfDayLog } from './entities/end-of-day-log.entity';
+import { IncomeBreakthroughLog } from './entities/income-breakthrough-log.entity';
+import { JourneyPhaseConfig } from './entities/journey-phase-config.entity';
 import { MindsetLog } from './entities/mindset-log.entity';
+import { Phase3StandardLog } from './entities/phase-3-standard-log.entity';
 import { SalesActivityReport } from './entities/sales-activity-report.entity';
 import { WeeklyConfig } from './entities/weekly-config.entity';
 import { WeeklyJournalLog } from './entities/weekly-journal-log.entity';
 import { EvaluateBehaviorLogDto } from './dto/evaluate-behavior-log.dto';
+import { ReviewDailyFormsDto } from './dto/review-daily-forms.dto';
 import { BehaviorFormType, SubmitLogDto } from './dto/submit-log.dto';
 import { CreateWeeklyConfigDto } from './dto/create-weekly-config.dto';
 import { SubmitWeeklyJournalDto, WeeklyJournalFormType } from './dto/submit-weekly-journal.dto';
+import { UpsertJourneyPhaseConfigDto } from './dto/upsert-journey-phase-config.dto';
 import { UpdateWeeklyConfigDto } from './dto/update-weekly-config.dto';
+import { validateActionTimeForDate } from '../common/utils/time-validator.util';
 
 @Injectable()
 export class BehaviorService {
@@ -44,11 +53,26 @@ export class BehaviorService {
     private readonly endOfDayLogsRepository: Repository<EndOfDayLog>,
     @InjectRepository(BeliefTransformationLog)
     private readonly beliefTransformationLogsRepository: Repository<BeliefTransformationLog>,
+    @InjectRepository(Phase3StandardLog)
+    private readonly phase3StandardLogsRepository: Repository<Phase3StandardLog>,
+    @InjectRepository(IncomeBreakthroughLog)
+    private readonly incomeBreakthroughLogsRepository: Repository<IncomeBreakthroughLog>,
+    @InjectRepository(CareerCommitmentLog)
+    private readonly careerCommitmentLogsRepository: Repository<CareerCommitmentLog>,
+    @InjectRepository(JourneyPhaseConfig)
+    private readonly journeyPhaseConfigsRepository: Repository<JourneyPhaseConfig>,
+    @InjectRepository(DailyFormReview)
+    private readonly dailyFormReviewsRepository: Repository<DailyFormReview>,
+    @InjectRepository(DailyFormEditLog)
+    private readonly dailyFormEditLogsRepository: Repository<DailyFormEditLog>,
     @InjectRepository(WeeklyJournalLog)
     private readonly weeklyJournalLogsRepository: Repository<WeeklyJournalLog>,
   ) {}
 
   async submitLog(user: any, dto: SubmitLogDto) {
+    const logDate = this.resolveLogDate(dto.logDate);
+    validateActionTimeForDate(logDate, 'Nhập nhật ký hằng ngày');
+
     if (dto.formType === BehaviorFormType.FORM_1) {
       return this.submitForm1(user.id, dto);
     }
@@ -64,7 +88,16 @@ export class BehaviorService {
     if (dto.formType === BehaviorFormType.FORM_5) {
       return this.submitForm5(user.id, dto);
     }
-    return this.submitForm8(user.id, dto);
+    if (dto.formType === BehaviorFormType.FORM_7) {
+      return this.submitForm7(user.id, dto);
+    }
+    if (dto.formType === BehaviorFormType.FORM_8) {
+      return this.submitForm8(user.id, dto);
+    }
+    if (dto.formType === BehaviorFormType.FORM_9) {
+      return this.submitForm9(user.id, dto);
+    }
+    return this.submitForm12(user.id, dto);
   }
 
   private resolveLogDate(logDate?: string): string {
@@ -202,6 +235,42 @@ export class BehaviorService {
     return this.beliefTransformationLogsRepository.save(records);
   }
 
+  private async submitForm7(userId: string, dto: SubmitLogDto) {
+    const logDate = this.resolveLogDate(dto.logDate);
+    let record = await this.phase3StandardLogsRepository.findOne({ userId, logDate });
+    if (!record) {
+      record = this.phase3StandardLogsRepository.create({ userId, logDate });
+    }
+    record.keptStandard = dto.keptStandard || '';
+    record.backslideSign = dto.backslideSign || '';
+    record.solution = dto.phase3Solution || '';
+    return this.phase3StandardLogsRepository.save(record);
+  }
+
+  private async submitForm9(userId: string, dto: SubmitLogDto) {
+    const logDate = this.resolveLogDate(dto.logDate);
+    let record = await this.incomeBreakthroughLogsRepository.findOne({ userId, logDate });
+    if (!record) {
+      record = this.incomeBreakthroughLogsRepository.create({ userId, logDate });
+    }
+    record.selfLimitArea = dto.selfLimitArea || '';
+    record.proofBehavior = dto.proofBehavior || '';
+    record.raiseStandard = dto.raiseStandard || '';
+    record.actionPlan = dto.actionPlan || '';
+    return this.incomeBreakthroughLogsRepository.save(record);
+  }
+
+  private async submitForm12(userId: string, dto: SubmitLogDto) {
+    const logDate = this.resolveLogDate(dto.logDate);
+    let record = await this.careerCommitmentLogsRepository.findOne({ userId, logDate });
+    if (!record) {
+      record = this.careerCommitmentLogsRepository.create({ userId, logDate });
+    }
+    record.declarationText = dto.declarationText || '';
+    record.commitmentSignature = dto.commitmentSignature || '';
+    return this.careerCommitmentLogsRepository.save(record);
+  }
+
   private async getCurrentWeek() {
     const today = new Date().toISOString().slice(0, 10);
     const week = await this.weeklyConfigsRepository
@@ -216,13 +285,445 @@ export class BehaviorService {
   }
 
   async getLogsHistory(userId: string, logDate: string) {
+    const reviews = await this.dailyFormReviewsRepository.find({ userId, logDate });
+    const reviewsByFormType = reviews.reduce(
+      (acc, item) => ({
+        ...acc,
+        [item.formType]: {
+          status: item.status,
+          managerNote: item.managerNote || '',
+          reviewedBy: item.reviewedBy,
+          reviewedAt: item.reviewedAt,
+        },
+      }),
+      {},
+    );
     return {
       form2: await this.behaviorChecklistLogsRepository.findOne({ userId, logDate }),
       form3: await this.mindsetLogsRepository.findOne({ userId, logDate }),
       form4: await this.salesActivityReportsRepository.find({ userId, logDate }),
       form5: await this.endOfDayLogsRepository.findOne({ userId, logDate }),
+      form7: await this.phase3StandardLogsRepository.findOne({ userId, logDate }),
       form8: await this.beliefTransformationLogsRepository.find({ userId, logDate }),
+      form9: await this.incomeBreakthroughLogsRepository.findOne({ userId, logDate }),
+      form12: await this.careerCommitmentLogsRepository.findOne({ userId, logDate }),
+      reviews: reviewsByFormType,
     };
+  }
+
+  private async upsertDailyReview(
+    userId: string,
+    logDate: string,
+    formType: string,
+    status: string,
+    managerId: string,
+  ) {
+    let review = await this.dailyFormReviewsRepository.findOne({ userId, logDate, formType });
+    if (!review) {
+      review = this.dailyFormReviewsRepository.create({ userId, logDate, formType });
+    }
+    review.status = status;
+    review.reviewedBy = managerId;
+    review.reviewedAt = new Date();
+    await this.dailyFormReviewsRepository.save(review);
+  }
+
+  private normalizeLogValue(value: any) {
+    if (value === null || value === undefined) {
+      return '';
+    }
+    if (typeof value === 'string') {
+      return value;
+    }
+    return JSON.stringify(value);
+  }
+
+  private addEditLog(
+    logs: DailyFormEditLog[],
+    params: {
+      journalId: string;
+      userId: string;
+      logDate: string;
+      formType: string;
+      fieldKey: string;
+      beforeValue: any;
+      afterValue: any;
+      editedBy: string;
+      editedAt: Date;
+    },
+  ) {
+    const beforeText = this.normalizeLogValue(params.beforeValue);
+    const afterText = this.normalizeLogValue(params.afterValue);
+    if (beforeText === afterText) {
+      return;
+    }
+    logs.push(
+      this.dailyFormEditLogsRepository.create({
+        journalId: params.journalId,
+        userId: params.userId,
+        logDate: params.logDate,
+        formType: params.formType,
+        fieldKey: params.fieldKey,
+        beforeValue: beforeText,
+        afterValue: afterText,
+        editedBy: params.editedBy,
+        editedAt: params.editedAt,
+      }),
+    );
+  }
+
+  async reviewDailyForms(currentUser: any, dto: ReviewDailyFormsDto) {
+    if (currentUser.role !== Role.MANAGER && currentUser.role !== Role.ADMIN) {
+      throw new ForbiddenException('Chỉ quản lý/admin được sửa và duyệt nhật ký ngày');
+    }
+    const journal = await this.journalsRepository.findOne(dto.journalId);
+    if (!journal) {
+      throw new NotFoundException('Không tìm thấy nhật ký');
+    }
+    const employee = await this.usersRepository.findOne(journal.userId);
+    if (!employee) {
+      throw new NotFoundException('Không tìm thấy nhân viên');
+    }
+    
+    validateActionTimeForDate(journal.reportDate, 'Duyệt và sửa nhật ký');
+
+    if (currentUser.role === Role.MANAGER && employee.unitId !== currentUser.unitId) {
+      throw new ForbiddenException('Bạn không có quyền xử lý nhân viên khác đơn vị');
+    }
+
+    const editLogs: DailyFormEditLog[] = [];
+    const editedAt = new Date();
+    if (dto.avoidance !== undefined) {
+      this.addEditLog(editLogs, {
+        journalId: journal.id,
+        userId: journal.userId,
+        logDate: journal.reportDate,
+        formType: 'FORM_1_AWARENESS',
+        fieldKey: 'avoidance',
+        beforeValue: journal.avoidance,
+        afterValue: dto.avoidance,
+        editedBy: currentUser.id,
+        editedAt,
+      });
+      journal.avoidance = dto.avoidance;
+    }
+    if (dto.selfLimit !== undefined) {
+      this.addEditLog(editLogs, {
+        journalId: journal.id,
+        userId: journal.userId,
+        logDate: journal.reportDate,
+        formType: 'FORM_1_AWARENESS',
+        fieldKey: 'selfLimit',
+        beforeValue: journal.selfLimit,
+        afterValue: dto.selfLimit,
+        editedBy: currentUser.id,
+        editedAt,
+      });
+      journal.selfLimit = dto.selfLimit;
+    }
+    if (dto.earlyStop !== undefined) {
+      this.addEditLog(editLogs, {
+        journalId: journal.id,
+        userId: journal.userId,
+        logDate: journal.reportDate,
+        formType: 'FORM_1_AWARENESS',
+        fieldKey: 'earlyStop',
+        beforeValue: journal.earlyStop,
+        afterValue: dto.earlyStop,
+        editedBy: currentUser.id,
+        editedAt,
+      });
+      journal.earlyStop = dto.earlyStop;
+    }
+    if (dto.blaming !== undefined) {
+      this.addEditLog(editLogs, {
+        journalId: journal.id,
+        userId: journal.userId,
+        logDate: journal.reportDate,
+        formType: 'FORM_1_AWARENESS',
+        fieldKey: 'blaming',
+        beforeValue: journal.blaming,
+        afterValue: dto.blaming,
+        editedBy: currentUser.id,
+        editedAt,
+      });
+      journal.blaming = dto.blaming;
+    }
+    if (dto.standardsKeptText !== undefined) {
+      this.addEditLog(editLogs, {
+        journalId: journal.id,
+        userId: journal.userId,
+        logDate: journal.reportDate,
+        formType: 'FORM_1_STANDARDS',
+        fieldKey: 'standardsKeptText',
+        beforeValue: journal.standardsKeptText,
+        afterValue: dto.standardsKeptText,
+        editedBy: currentUser.id,
+        editedAt,
+      });
+      journal.standardsKeptText = dto.standardsKeptText;
+    }
+    if (dto.backslideSigns !== undefined) {
+      this.addEditLog(editLogs, {
+        journalId: journal.id,
+        userId: journal.userId,
+        logDate: journal.reportDate,
+        formType: 'FORM_1_STANDARDS',
+        fieldKey: 'backslideSigns',
+        beforeValue: journal.backslideSigns,
+        afterValue: dto.backslideSigns,
+        editedBy: currentUser.id,
+        editedAt,
+      });
+      journal.backslideSigns = dto.backslideSigns;
+    }
+    if (dto.solution !== undefined) {
+      this.addEditLog(editLogs, {
+        journalId: journal.id,
+        userId: journal.userId,
+        logDate: journal.reportDate,
+        formType: 'FORM_1_STANDARDS',
+        fieldKey: 'solution',
+        beforeValue: journal.solution,
+        afterValue: dto.solution,
+        editedBy: currentUser.id,
+        editedAt,
+      });
+      journal.solution = dto.solution;
+    }
+    await this.journalsRepository.save(journal);
+
+    if (
+      dto.form3NegativeThought !== undefined ||
+      dto.form3NewMindset !== undefined ||
+      dto.form3BehaviorChange !== undefined
+    ) {
+      let row = await this.mindsetLogsRepository.findOne({ userId: journal.userId, logDate: journal.reportDate });
+      if (!row) {
+        row = this.mindsetLogsRepository.create({ userId: journal.userId, logDate: journal.reportDate });
+      }
+      if (dto.form3NegativeThought !== undefined) {
+        this.addEditLog(editLogs, { journalId: journal.id, userId: journal.userId, logDate: journal.reportDate, formType: 'FORM_3', fieldKey: 'negativeThought', beforeValue: row.negativeThought, afterValue: dto.form3NegativeThought, editedBy: currentUser.id, editedAt });
+        row.negativeThought = dto.form3NegativeThought;
+      }
+      if (dto.form3NewMindset !== undefined) {
+        this.addEditLog(editLogs, { journalId: journal.id, userId: journal.userId, logDate: journal.reportDate, formType: 'FORM_3', fieldKey: 'newMindset', beforeValue: row.newMindset, afterValue: dto.form3NewMindset, editedBy: currentUser.id, editedAt });
+        row.newMindset = dto.form3NewMindset;
+      }
+      if (dto.form3BehaviorChange !== undefined) {
+        this.addEditLog(editLogs, { journalId: journal.id, userId: journal.userId, logDate: journal.reportDate, formType: 'FORM_3', fieldKey: 'behaviorChange', beforeValue: row.behaviorChange, afterValue: dto.form3BehaviorChange, editedBy: currentUser.id, editedAt });
+        row.behaviorChange = dto.form3BehaviorChange;
+      }
+      await this.mindsetLogsRepository.save(row);
+    }
+
+    if (dto.form4Rows !== undefined) {
+      const beforeRows = await this.salesActivityReportsRepository.find({ userId: journal.userId, logDate: journal.reportDate });
+      this.addEditLog(editLogs, {
+        journalId: journal.id,
+        userId: journal.userId,
+        logDate: journal.reportDate,
+        formType: 'FORM_4',
+        fieldKey: 'rows',
+        beforeValue: beforeRows || [],
+        afterValue: dto.form4Rows || [],
+        editedBy: currentUser.id,
+        editedAt,
+      });
+      await this.salesActivityReportsRepository.delete({ userId: journal.userId, logDate: journal.reportDate });
+      const rows = (dto.form4Rows || []).map((item) =>
+        this.salesActivityReportsRepository.create({
+          userId: journal.userId,
+          logDate: journal.reportDate,
+          customerName: item.customerName || '',
+          customerIssue: item.customerIssue || '',
+          consequence: item.consequence || '',
+          solutionOffered: item.solutionOffered || '',
+          valueBasedPricing: item.valueBasedPricing || '',
+          result: item.result || '',
+        }),
+      );
+      if (rows.length > 0) {
+        await this.salesActivityReportsRepository.save(rows);
+      }
+    }
+
+    if (dto.form5TomorrowLesson !== undefined || dto.form5DifferentAction !== undefined) {
+      let row = await this.endOfDayLogsRepository.findOne({ userId: journal.userId, logDate: journal.reportDate });
+      if (!row) {
+        row = this.endOfDayLogsRepository.create({ userId: journal.userId, logDate: journal.reportDate });
+      }
+      if (dto.form5TomorrowLesson !== undefined) {
+        this.addEditLog(editLogs, { journalId: journal.id, userId: journal.userId, logDate: journal.reportDate, formType: 'FORM_5', fieldKey: 'tomorrowLesson', beforeValue: row.tomorrowLesson, afterValue: dto.form5TomorrowLesson, editedBy: currentUser.id, editedAt });
+        row.tomorrowLesson = dto.form5TomorrowLesson;
+      }
+      if (dto.form5DifferentAction !== undefined) {
+        this.addEditLog(editLogs, { journalId: journal.id, userId: journal.userId, logDate: journal.reportDate, formType: 'FORM_5', fieldKey: 'differentAction', beforeValue: row.differentAction, afterValue: dto.form5DifferentAction, editedBy: currentUser.id, editedAt });
+        row.differentAction = dto.form5DifferentAction;
+      }
+      await this.endOfDayLogsRepository.save(row);
+    }
+
+    if (dto.form7KeptStandard !== undefined || dto.form7BackslideSign !== undefined || dto.form7Solution !== undefined) {
+      let row = await this.phase3StandardLogsRepository.findOne({ userId: journal.userId, logDate: journal.reportDate });
+      if (!row) {
+        row = this.phase3StandardLogsRepository.create({ userId: journal.userId, logDate: journal.reportDate });
+      }
+      if (dto.form7KeptStandard !== undefined) {
+        this.addEditLog(editLogs, { journalId: journal.id, userId: journal.userId, logDate: journal.reportDate, formType: 'FORM_7', fieldKey: 'keptStandard', beforeValue: row.keptStandard, afterValue: dto.form7KeptStandard, editedBy: currentUser.id, editedAt });
+        row.keptStandard = dto.form7KeptStandard;
+      }
+      if (dto.form7BackslideSign !== undefined) {
+        this.addEditLog(editLogs, { journalId: journal.id, userId: journal.userId, logDate: journal.reportDate, formType: 'FORM_7', fieldKey: 'backslideSign', beforeValue: row.backslideSign, afterValue: dto.form7BackslideSign, editedBy: currentUser.id, editedAt });
+        row.backslideSign = dto.form7BackslideSign;
+      }
+      if (dto.form7Solution !== undefined) {
+        this.addEditLog(editLogs, { journalId: journal.id, userId: journal.userId, logDate: journal.reportDate, formType: 'FORM_7', fieldKey: 'solution', beforeValue: row.solution, afterValue: dto.form7Solution, editedBy: currentUser.id, editedAt });
+        row.solution = dto.form7Solution;
+      }
+      await this.phase3StandardLogsRepository.save(row);
+    }
+
+    if (dto.form8Rows !== undefined) {
+      const beforeRows = await this.beliefTransformationLogsRepository.find({ userId: journal.userId, logDate: journal.reportDate });
+      this.addEditLog(editLogs, {
+        journalId: journal.id,
+        userId: journal.userId,
+        logDate: journal.reportDate,
+        formType: 'FORM_8',
+        fieldKey: 'rows',
+        beforeValue: beforeRows || [],
+        afterValue: dto.form8Rows || [],
+        editedBy: currentUser.id,
+        editedAt,
+      });
+      await this.beliefTransformationLogsRepository.delete({ userId: journal.userId, logDate: journal.reportDate });
+      const rows = (dto.form8Rows || []).map((item) =>
+        this.beliefTransformationLogsRepository.create({
+          userId: journal.userId,
+          logDate: journal.reportDate,
+          situation: item.situation || '',
+          oldBelief: item.oldBelief || '',
+          newChosenBelief: item.newChosenBelief || '',
+          newBehavior: item.newBehavior || '',
+          result: item.result || '',
+        }),
+      );
+      if (rows.length > 0) {
+        await this.beliefTransformationLogsRepository.save(rows);
+      }
+    }
+
+    if (
+      dto.form9SelfLimitArea !== undefined ||
+      dto.form9ProofBehavior !== undefined ||
+      dto.form9RaiseStandard !== undefined ||
+      dto.form9ActionPlan !== undefined
+    ) {
+      let row = await this.incomeBreakthroughLogsRepository.findOne({ userId: journal.userId, logDate: journal.reportDate });
+      if (!row) {
+        row = this.incomeBreakthroughLogsRepository.create({ userId: journal.userId, logDate: journal.reportDate });
+      }
+      if (dto.form9SelfLimitArea !== undefined) {
+        this.addEditLog(editLogs, { journalId: journal.id, userId: journal.userId, logDate: journal.reportDate, formType: 'FORM_9', fieldKey: 'selfLimitArea', beforeValue: row.selfLimitArea, afterValue: dto.form9SelfLimitArea, editedBy: currentUser.id, editedAt });
+        row.selfLimitArea = dto.form9SelfLimitArea;
+      }
+      if (dto.form9ProofBehavior !== undefined) {
+        this.addEditLog(editLogs, { journalId: journal.id, userId: journal.userId, logDate: journal.reportDate, formType: 'FORM_9', fieldKey: 'proofBehavior', beforeValue: row.proofBehavior, afterValue: dto.form9ProofBehavior, editedBy: currentUser.id, editedAt });
+        row.proofBehavior = dto.form9ProofBehavior;
+      }
+      if (dto.form9RaiseStandard !== undefined) {
+        this.addEditLog(editLogs, { journalId: journal.id, userId: journal.userId, logDate: journal.reportDate, formType: 'FORM_9', fieldKey: 'raiseStandard', beforeValue: row.raiseStandard, afterValue: dto.form9RaiseStandard, editedBy: currentUser.id, editedAt });
+        row.raiseStandard = dto.form9RaiseStandard;
+      }
+      if (dto.form9ActionPlan !== undefined) {
+        this.addEditLog(editLogs, { journalId: journal.id, userId: journal.userId, logDate: journal.reportDate, formType: 'FORM_9', fieldKey: 'actionPlan', beforeValue: row.actionPlan, afterValue: dto.form9ActionPlan, editedBy: currentUser.id, editedAt });
+        row.actionPlan = dto.form9ActionPlan;
+      }
+      await this.incomeBreakthroughLogsRepository.save(row);
+    }
+
+    if (dto.form12DeclarationText !== undefined || dto.form12CommitmentSignature !== undefined) {
+      let row = await this.careerCommitmentLogsRepository.findOne({ userId: journal.userId, logDate: journal.reportDate });
+      if (!row) {
+        row = this.careerCommitmentLogsRepository.create({ userId: journal.userId, logDate: journal.reportDate });
+      }
+      if (dto.form12DeclarationText !== undefined) {
+        this.addEditLog(editLogs, { journalId: journal.id, userId: journal.userId, logDate: journal.reportDate, formType: 'FORM_12', fieldKey: 'declarationText', beforeValue: row.declarationText, afterValue: dto.form12DeclarationText, editedBy: currentUser.id, editedAt });
+        row.declarationText = dto.form12DeclarationText;
+      }
+      if (dto.form12CommitmentSignature !== undefined) {
+        this.addEditLog(editLogs, { journalId: journal.id, userId: journal.userId, logDate: journal.reportDate, formType: 'FORM_12', fieldKey: 'commitmentSignature', beforeValue: row.commitmentSignature, afterValue: dto.form12CommitmentSignature, editedBy: currentUser.id, editedAt });
+        row.commitmentSignature = dto.form12CommitmentSignature;
+      }
+      await this.careerCommitmentLogsRepository.save(row);
+    }
+
+    const statuses = dto.statuses || {};
+    const map = [
+      ['form1Awareness', 'FORM_1_AWARENESS'],
+      ['form1Standards', 'FORM_1_STANDARDS'],
+      ['form3', 'FORM_3'],
+      ['form4', 'FORM_4'],
+      ['form5', 'FORM_5'],
+      ['form7', 'FORM_7'],
+      ['form8', 'FORM_8'],
+      ['form9', 'FORM_9'],
+      ['form12', 'FORM_12'],
+    ] as const;
+    for (const [key, formType] of map) {
+      const status = statuses[key];
+      if (status) {
+        await this.upsertDailyReview(journal.userId, journal.reportDate, formType, status, currentUser.id);
+      }
+    }
+    if (editLogs.length > 0) {
+      await this.dailyFormEditLogsRepository.save(editLogs);
+    }
+    return { success: true };
+  }
+
+  async getJourneyPhaseConfigs() {
+    const rows = await this.journeyPhaseConfigsRepository.find({
+      where: { isActive: true },
+      order: { sortOrder: 'ASC', startDate: 'ASC' },
+    });
+    return rows.map((item) => ({
+      id: item.id,
+      phaseCode: item.phaseCode,
+      phaseName: item.phaseName,
+      startDate: item.startDate,
+      endDate: item.endDate,
+      sortOrder: item.sortOrder,
+      isActive: item.isActive,
+      allowedForms: item.allowedForms || [],
+    }));
+  }
+
+  async getJourneyPhaseConfigsForAdmin() {
+    return this.journeyPhaseConfigsRepository.find({
+      order: { sortOrder: 'ASC', startDate: 'ASC' },
+    });
+  }
+
+  async upsertJourneyPhaseConfig(id: string | null, dto: UpsertJourneyPhaseConfigDto) {
+    if (dto.startDate && dto.endDate && new Date(dto.startDate) > new Date(dto.endDate)) {
+      throw new BadRequestException('Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc');
+    }
+    let item = id ? await this.journeyPhaseConfigsRepository.findOne(id) : null;
+    if (!item) {
+      item = this.journeyPhaseConfigsRepository.create();
+    }
+    item.phaseCode = String(dto.phaseCode || '').trim().toUpperCase();
+    item.phaseName = String(dto.phaseName || '').trim();
+    item.startDate = dto.startDate || null;
+    item.endDate = dto.endDate || null;
+    item.sortOrder = Number(dto.sortOrder || 1);
+    item.isActive = dto.isActive !== false;
+    if (dto.allowedForms) {
+      item.allowedForms = dto.allowedForms;
+    }
+    return this.journeyPhaseConfigsRepository.save(item);
   }
 
   async getPendingLogsForManager(currentUser: any) {
@@ -248,6 +749,71 @@ export class BehaviorService {
       week,
       items,
     };
+  }
+
+  async getApprovedJournals(
+    currentUser: any,
+    filters: { fromDate?: string; toDate?: string; unitId?: string; keyword?: string },
+  ) {
+    let query = `
+      SELECT 
+        j.id AS "id",
+        j."reportDate" AS "reportDate",
+        u.id AS "userId",
+        u."fullName" AS "fullName",
+        u.username AS "username",
+        u."unitId" AS "unitId",
+        STRING_AGG(DISTINCT r.form_type, ',') AS "approvedFormsText"
+      FROM journals j
+      INNER JOIN users u ON u.id = j."userId"
+      INNER JOIN daily_form_reviews r ON r.user_id::uuid = j."userId" AND r.log_date = j."reportDate" AND r.status = 'APPROVED'
+      WHERE u.role = $1
+    `;
+    const params: any[] = [Role.EMPLOYEE];
+    let paramIndex = 2;
+
+    if (filters.fromDate) {
+      query += ` AND j."reportDate" >= $${paramIndex++}`;
+      params.push(filters.fromDate);
+    }
+    if (filters.toDate) {
+      query += ` AND j."reportDate" <= $${paramIndex++}`;
+      params.push(filters.toDate);
+    }
+    if (currentUser.role === Role.MANAGER) {
+      query += ` AND u."unitId" = $${paramIndex++}`;
+      params.push(currentUser.unitId);
+    } else if (filters.unitId) {
+      query += ` AND u."unitId" = $${paramIndex++}`;
+      params.push(filters.unitId);
+    }
+    const keyword = String(filters.keyword || '').trim().toLowerCase();
+    if (keyword) {
+      query += ` AND (LOWER(u."fullName") LIKE $${paramIndex} OR LOWER(u.username) LIKE $${paramIndex++})`;
+      params.push(`%${keyword}%`);
+    }
+
+    query += `
+      GROUP BY j.id, j."reportDate", u.id, u."fullName", u.username, u."unitId"
+      ORDER BY j."reportDate" DESC, u."fullName" ASC
+    `;
+
+    const rows = await this.journalsRepository.query(query, params);
+
+    return rows.map((row) => ({
+      id: row.id,
+      reportDate: row.reportDate,
+      user: {
+        id: row.userId,
+        fullName: row.fullName || '',
+        username: row.username || '',
+        unitId: row.unitId || '',
+      },
+      approvedForms: String(row.approvedFormsText || '')
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean),
+    }));
   }
 
   async evaluateBehaviorLog(id: string, dto: EvaluateBehaviorLogDto, currentUser: any) {

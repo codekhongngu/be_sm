@@ -80,13 +80,13 @@ export class EvaluationsController {
   }
 
   @Get('pending/list')
-  @Roles(Role.MANAGER, Role.ADMIN)
+  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   getPending(@Req() req: any) {
     return this.evaluationsService.getPendingForManager(req.user);
   }
 
   @Get('analytics/weekly')
-  @Roles(Role.MANAGER, Role.ADMIN)
+  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   getWeeklyAnalytics(@Req() req: any) {
     return this.evaluationsService.getWeeklyAnalytics(req.user);
   }

@@ -15,6 +15,7 @@ import { UpdateManagerDailyScoreCriterionDto } from './dto/update-manager-daily-
 import { ManagerDailyScoreCriterion } from './entities/manager-daily-score-criterion.entity';
 import { ManagerDailyScoreItem } from './entities/manager-daily-score-item.entity';
 import { ManagerDailyScoreSheet } from './entities/manager-daily-score-sheet.entity';
+import { validateActionTimeForDate } from '../common/utils/time-validator.util';
 
 const DEFAULT_CRITERIA = [
   ['LEARNING', 'I. Học tập, rèn luyện', 1, 'LEARNING_TRAINING_PARTICIPATION', 1, '1', 'Tham gia đào tạo, giao ban hằng ngày', 5],
@@ -377,6 +378,8 @@ export class ManagerDailyScoresService {
       throw new BadRequestException('scoreDate không hợp lệ');
     }
 
+    validateActionTimeForDate(normalizedDate, 'Chấm điểm nhân viên');
+
     const activeCriteria = await this.getActiveCriteria();
     if (!activeCriteria.length) {
       throw new BadRequestException('Chưa có cấu hình tiêu chí chấm điểm');
@@ -510,7 +513,7 @@ export class ManagerDailyScoresService {
 
   async getStatistics(
     currentUser: any,
-    filters: { fromDate?: string; toDate?: string; employeeId?: string },
+    filters: { fromDate?: string; toDate?: string; employeeId?: string; unitId?: string },
   ) {
     const criteria = await this.getActiveCriteria();
 
@@ -537,6 +540,8 @@ export class ManagerDailyScoresService {
       qb.andWhere('sheet.employeeId = :employeeId', { employeeId: employee.id });
     } else if (currentUser.role === Role.MANAGER) {
       qb.andWhere('sheet.unitId = :unitId', { unitId: currentUser.unitId });
+    } else if (filters.unitId) {
+      qb.andWhere('sheet.unitId = :unitId', { unitId: filters.unitId });
     }
 
     const sheets = await qb
@@ -577,6 +582,7 @@ export class ManagerDailyScoresService {
           id: sheet.employee?.id || '',
           fullName: sheet.employee?.fullName || '',
           username: sheet.employee?.username || '',
+          unitId: sheet.employee?.unitId || '',
         },
         manager: {
           id: sheet.manager?.id || '',
@@ -593,17 +599,57 @@ export class ManagerDailyScoresService {
       sections.reduce((sum, section) => sum + section.maxScore, 0).toFixed(2),
     );
 
+    const unitMap = new Map<
+      string,
+      {
+        unitId: string;
+        unitName: string;
+        totalScore: number;
+        employeeIds: Set<string>;
+      }
+    >();
+    rows.forEach((row) => {
+      const unitName = row.unitName || 'Chưa rõ đơn vị';
+      let unit = unitMap.get(unitName);
+      if (!unit) {
+        unit = {
+          unitId: row.employee?.unitId || '',
+          unitName,
+          totalScore: 0,
+          employeeIds: new Set<string>(),
+        };
+        unitMap.set(unitName, unit);
+      }
+      unit.totalScore += Number(row.totalScore || 0);
+      if (row.employee?.id) {
+        unit.employeeIds.add(row.employee.id);
+      }
+    });
+    const unitRows = [...unitMap.values()].map((item) => {
+      const employeeCount = item.employeeIds.size;
+      const averageScore = employeeCount === 0 ? 0 : Number((item.totalScore / employeeCount).toFixed(2));
+      return {
+        unitId: item.unitId,
+        unitName: item.unitName,
+        employeeCount,
+        totalScore: Number(item.totalScore.toFixed(2)),
+        averageScore,
+      };
+    });
+
     return {
       filters: {
         fromDate: fromDate || null,
         toDate: toDate || null,
         employeeId: filters.employeeId || null,
+        unitId: filters.unitId || null,
       },
       template: {
         sections,
         totalMaxScore,
       },
       rows,
+      unitRows,
       totals: {
         totalRows: rows.length,
         averageScore:
@@ -620,7 +666,7 @@ export class ManagerDailyScoresService {
 
   async exportStatisticsFile(
     currentUser: any,
-    filters: { fromDate?: string; toDate?: string; employeeId?: string },
+    filters: { fromDate?: string; toDate?: string; employeeId?: string; unitId?: string },
   ) {
     const stats = await this.getStatistics(currentUser, filters);
     const criteria = (stats?.template?.sections || []).flatMap((section) => section.items || []);

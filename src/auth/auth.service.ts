@@ -40,7 +40,7 @@ export class AuthService {
     return this.buildAuthResponse(user);
   }
 
-  async login(loginDto: LoginDto) {
+  async login(loginDto: LoginDto, ipAddress?: string, userAgent?: string) {
     const user = await this.usersService.findByUsername(loginDto.username);
     if (!user) {
       throw new UnauthorizedException('Sai tài khoản hoặc mật khẩu');
@@ -49,6 +49,13 @@ export class AuthService {
     const isMatch = await bcrypt.compare(loginDto.password, user.password);
     if (!isMatch) {
       throw new UnauthorizedException('Sai tài khoản hoặc mật khẩu');
+    }
+
+    // Ghi log đăng nhập
+    try {
+      await this.usersService.logLogin(user.id, user.username, ipAddress || '', userAgent || '');
+    } catch (e) {
+      console.error('Failed to log login', e);
     }
 
     return this.buildAuthResponse(user);

@@ -17,7 +17,10 @@ export enum BehaviorFormType {
   FORM_3 = 'FORM_3',
   FORM_4 = 'FORM_4',
   FORM_5 = 'FORM_5',
+  FORM_7 = 'FORM_7',
   FORM_8 = 'FORM_8',
+  FORM_9 = 'FORM_9',
+  FORM_12 = 'FORM_12',
 }
 
 export class SalesActivityItemDto {
@@ -192,4 +195,40 @@ export class SubmitLogDto {
   @IsOptional()
   @IsString()
   transformationResult?: string;
+
+  @IsOptional()
+  @IsString()
+  keptStandard?: string;
+
+  @IsOptional()
+  @IsString()
+  backslideSign?: string;
+
+  @IsOptional()
+  @IsString()
+  phase3Solution?: string;
+
+  @IsOptional()
+  @IsString()
+  selfLimitArea?: string;
+
+  @IsOptional()
+  @IsString()
+  proofBehavior?: string;
+
+  @IsOptional()
+  @IsString()
+  raiseStandard?: string;
+
+  @IsOptional()
+  @IsString()
+  actionPlan?: string;
+
+  @IsOptional()
+  @IsString()
+  declarationText?: string;
+
+  @IsOptional()
+  @IsString()
+  commitmentSignature?: string;
 }

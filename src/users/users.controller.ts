@@ -38,6 +38,12 @@ import { Response } from 'express';
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
+  @Get('login-logs')
+  @Roles(Role.ADMIN)
+  async getLoginLogs() {
+    return this.usersService.getLoginLogs(500); // Lấy 500 logs gần nhất
+  }
+
   @Get()
   @Roles(Role.MANAGER, Role.ADMIN)
   async getList(@Req() req: any) {
@@ -195,10 +201,10 @@ export class UsersController {
   }
 
   @Get('units')
-  @Roles(Role.MANAGER, Role.ADMIN)
+  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   async getUnits(@Req() req: any) {
     const units = await this.usersService.getUnits();
-    if (req.user.role === Role.ADMIN) {
+    if (req.user.role === Role.ADMIN || req.user.role === Role.PROVINCIAL_VIEWER) {
       return units;
     }
     return units.filter((unit) => unit.id === req.user.unitId);

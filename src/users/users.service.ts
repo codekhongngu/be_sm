@@ -4,6 +4,7 @@ import { Role } from 'src/common/enums/role.enum';
 import { Repository } from 'typeorm';
 import { Unit } from './entities/unit.entity';
 import { User } from './entities/user.entity';
+import { LoginLog } from './entities/login-log.entity';
 
 @Injectable()
 export class UsersService {
@@ -12,7 +13,26 @@ export class UsersService {
     private readonly usersRepository: Repository<User>,
     @InjectRepository(Unit)
     private readonly unitsRepository: Repository<Unit>,
+    @InjectRepository(LoginLog)
+    private readonly loginLogsRepository: Repository<LoginLog>,
   ) {}
+
+  async logLogin(userId: string, username: string, ipAddress: string, userAgent: string) {
+    const log = this.loginLogsRepository.create({
+      userId,
+      username,
+      ipAddress,
+      userAgent,
+    });
+    return this.loginLogsRepository.save(log);
+  }
+
+  async getLoginLogs(limit: number = 100) {
+    return this.loginLogsRepository.find({
+      order: { createdAt: 'DESC' },
+      take: limit,
+    });
+  }
 
   findByUsername(username: string) {
     return this.usersRepository.findOne({ username });

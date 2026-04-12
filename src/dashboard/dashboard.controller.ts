@@ -17,12 +17,13 @@ export class DashboardController {
   }
 
   @Get('behavior-analytics')
-  @Roles(Role.MANAGER, Role.ADMIN)
+  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   getBehaviorAnalytics(
     @Req() req: any,
     @Query('period') period?: string,
     @Query('unitId') unitId?: string,
+    @Query('phaseId') phaseId?: string,
   ) {
-    return this.dashboardService.getBehaviorAnalytics(req.user, { period, unitId });
+    return this.dashboardService.getBehaviorAnalytics(req.user, { period, unitId, phaseId });
   }
 }

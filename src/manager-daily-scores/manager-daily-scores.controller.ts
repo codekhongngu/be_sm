@@ -27,7 +27,7 @@ export class ManagerDailyScoresController {
   constructor(private readonly managerDailyScoresService: ManagerDailyScoresService) {}
 
   @Get('criteria')
-  @Roles(Role.MANAGER, Role.ADMIN)
+  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   getCriteria() {
     return this.managerDailyScoresService.getCriteria();
   }
@@ -57,13 +57,13 @@ export class ManagerDailyScoresController {
   }
 
   @Get('employees')
-  @Roles(Role.MANAGER, Role.ADMIN)
+  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   getEmployees(@Req() req: any, @Query('keyword') keyword?: string) {
     return this.managerDailyScoresService.getEmployees(req.user, keyword);
   }
 
   @Get('entry')
-  @Roles(Role.MANAGER, Role.ADMIN)
+  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   getEntry(@Req() req: any, @Query('employeeId') employeeId: string, @Query('scoreDate') scoreDate: string) {
     return this.managerDailyScoresService.getEntry(req.user, employeeId, scoreDate);
   }
@@ -75,33 +75,37 @@ export class ManagerDailyScoresController {
   }
 
   @Get('statistics')
-  @Roles(Role.MANAGER, Role.ADMIN)
+  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   getStatistics(
     @Req() req: any,
     @Query('fromDate') fromDate?: string,
     @Query('toDate') toDate?: string,
     @Query('employeeId') employeeId?: string,
+    @Query('unitId') unitId?: string,
   ) {
     return this.managerDailyScoresService.getStatistics(req.user, {
       fromDate,
       toDate,
       employeeId,
+      unitId,
     });
   }
 
   @Get('statistics-export')
-  @Roles(Role.MANAGER, Role.ADMIN)
+  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   async exportStatistics(
     @Req() req: any,
-    @Query('fromDate') fromDate: string,
-    @Query('toDate') toDate: string,
-    @Query('employeeId') employeeId: string,
     @Res() res: Response,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+    @Query('employeeId') employeeId?: string,
+    @Query('unitId') unitId?: string,
   ) {
     const file = await this.managerDailyScoresService.exportStatisticsFile(req.user, {
       fromDate,
       toDate,
       employeeId,
+      unitId,
     });
     res.setHeader(
       'Content-Type',
@@ -112,7 +116,7 @@ export class ManagerDailyScoresController {
   }
 
   @Get('statistics/:scoreDate')
-  @Roles(Role.MANAGER, Role.ADMIN)
+  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   getStatisticsByDate(@Req() req: any, @Param('scoreDate') scoreDate: string) {
     return this.managerDailyScoresService.getStatistics(req.user, {
       fromDate: scoreDate,

@@ -14,6 +14,7 @@ import { Repository } from 'typeorm';
 import { CreateEvaluationDto } from './dto/create-evaluation.dto';
 import { UpdateEvaluationDto } from './dto/update-evaluation.dto';
 import { Evaluation } from './entities/evaluation.entity';
+import { validateActionTimeForDate } from 'src/common/utils/time-validator.util';
 
 @Injectable()
 export class EvaluationsService {
@@ -206,6 +207,7 @@ export class EvaluationsService {
       throw new ForbiddenException('Chỉ quản lý/admin được cập nhật đánh giá');
     }
     const { journal, manager } = await this.resolveManagerAndJournal(journalId, user);
+    validateActionTimeForDate(journal.reportDate || journal.createdAt, 'Đánh giá/chấm điểm');
     let evaluation = await this.evaluationsRepository.findOne({ journalId });
     if (!evaluation) {
       const required = [
@@ -305,6 +307,7 @@ export class EvaluationsService {
       throw new ForbiddenException('Chỉ quản lý/admin được cập nhật đánh giá');
     }
     const { journal, manager } = await this.resolveManagerAndJournal(journalId, user);
+    validateActionTimeForDate(journal.reportDate || journal.createdAt, 'Đánh giá/chấm điểm');
     let evaluation = await this.evaluationsRepository.findOne({ journalId });
     if (!evaluation) {
       evaluation = this.evaluationsRepository.create({
@@ -361,6 +364,7 @@ export class EvaluationsService {
       throw new ForbiddenException('Chỉ quản lý/admin được cập nhật đánh giá');
     }
     const { journal, manager } = await this.resolveManagerAndJournal(journalId, user);
+    validateActionTimeForDate(journal.reportDate || journal.createdAt, 'Đánh giá/chấm điểm');
     let evaluation = await this.evaluationsRepository.findOne({ journalId });
     if (!evaluation) {
       const required = [
@@ -409,7 +413,11 @@ export class EvaluationsService {
   }
 
   async getPendingForManager(user: any) {
-    if (user.role !== Role.MANAGER && user.role !== Role.ADMIN) {
+    if (
+      user.role !== Role.MANAGER &&
+      user.role !== Role.ADMIN &&
+      user.role !== Role.PROVINCIAL_VIEWER
+    ) {
       throw new ForbiddenException('Chỉ quản lý/admin được xem danh sách chờ');
     }
     const journals = await this.journalsService.getList(user);
@@ -426,7 +434,11 @@ export class EvaluationsService {
   }
 
   async getWeeklyAnalytics(user: any) {
-    if (user.role !== Role.MANAGER && user.role !== Role.ADMIN) {
+    if (
+      user.role !== Role.MANAGER &&
+      user.role !== Role.ADMIN &&
+      user.role !== Role.PROVINCIAL_VIEWER
+    ) {
       throw new ForbiddenException('Chỉ quản lý/admin được xem analytics');
     }
     const qb = this.evaluationsRepository

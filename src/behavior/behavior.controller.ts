@@ -18,7 +18,9 @@ import { BehaviorService } from './behavior.service';
 import { CreateWeeklyConfigDto } from './dto/create-weekly-config.dto';
 import { EvaluateBehaviorLogDto } from './dto/evaluate-behavior-log.dto';
 import { SubmitLogDto } from './dto/submit-log.dto';
+import { ReviewDailyFormsDto } from './dto/review-daily-forms.dto';
 import { SubmitWeeklyJournalDto } from './dto/submit-weekly-journal.dto';
+import { UpsertJourneyPhaseConfigDto } from './dto/upsert-journey-phase-config.dto';
 import { UpdateWeeklyConfigDto } from './dto/update-weekly-config.dto';
 
 @Controller('api')
@@ -56,14 +58,37 @@ export class BehaviorController {
     return this.behaviorService.evaluateBehaviorLog(id, dto, req.user);
   }
 
-  @Get('reports/summary/weekly/:weekId')
+  @Patch('manager/journals/review-daily')
   @Roles(Role.MANAGER, Role.ADMIN)
+  reviewDailyForms(@Body() dto: ReviewDailyFormsDto, @Req() req: any) {
+    return this.behaviorService.reviewDailyForms(req.user, dto);
+  }
+
+  @Get('manager/journals/approved')
+  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  getApprovedJournals(
+    @Req() req: any,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+    @Query('unitId') unitId?: string,
+    @Query('keyword') keyword?: string,
+  ) {
+    return this.behaviorService.getApprovedJournals(req.user, {
+      fromDate,
+      toDate,
+      unitId,
+      keyword,
+    });
+  }
+
+  @Get('reports/summary/weekly/:weekId')
+  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   getWeeklySummary(@Param('weekId') weekId: string, @Req() req: any) {
     return this.behaviorService.getWeeklySummary(weekId, req.user);
   }
 
   @Get('admin/weekly-configs')
-  @Roles(Role.MANAGER, Role.ADMIN)
+  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   getWeeklyConfigs() {
     return this.behaviorService.getWeeklyConfigs();
   }
@@ -102,5 +127,29 @@ export class BehaviorController {
   @Roles(Role.EMPLOYEE)
   submitWeeklyJournal(@Req() req: any, @Body() dto: SubmitWeeklyJournalDto) {
     return this.behaviorService.submitWeeklyJournal(req.user, dto);
+  }
+
+  @Get('journey-phase-configs')
+  @Roles(Role.EMPLOYEE, Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  getJourneyPhaseConfigs() {
+    return this.behaviorService.getJourneyPhaseConfigs();
+  }
+
+  @Get('admin/journey-phase-configs')
+  @Roles(Role.ADMIN)
+  getJourneyPhaseConfigsForAdmin() {
+    return this.behaviorService.getJourneyPhaseConfigsForAdmin();
+  }
+
+  @Post('admin/journey-phase-configs')
+  @Roles(Role.ADMIN)
+  createJourneyPhaseConfig(@Body() dto: UpsertJourneyPhaseConfigDto) {
+    return this.behaviorService.upsertJourneyPhaseConfig(null, dto);
+  }
+
+  @Patch('admin/journey-phase-configs/:id')
+  @Roles(Role.ADMIN)
+  updateJourneyPhaseConfig(@Param('id') id: string, @Body() dto: UpsertJourneyPhaseConfigDto) {
+    return this.behaviorService.upsertJourneyPhaseConfig(id, dto);
   }
 }

@@ -49,7 +49,7 @@ export class JournalsController {
   }
 
   @Get()
-  @Roles(Role.EMPLOYEE, Role.MANAGER, Role.ADMIN)
+  @Roles(Role.EMPLOYEE, Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   getList(
     @Req() req: any,
     @Query('fromDate') fromDate?: string,
@@ -60,7 +60,7 @@ export class JournalsController {
   }
 
   @Get(':id')
-  @Roles(Role.EMPLOYEE, Role.MANAGER, Role.ADMIN)
+  @Roles(Role.EMPLOYEE, Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   @Ownership('journal')
   @UseGuards(OwnershipGuard)
   findById(@Param('id') id: string) {

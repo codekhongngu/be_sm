@@ -6,6 +6,7 @@ import { Journal } from 'src/journals/entities/journal.entity';
 import { Unit } from 'src/users/entities/unit.entity';
 import { User } from 'src/users/entities/user.entity';
 import { Repository } from 'typeorm';
+import { JourneyPhaseConfig } from 'src/behavior/entities/journey-phase-config.entity';
 
 @Injectable()
 export class DashboardService {
@@ -18,6 +19,8 @@ export class DashboardService {
     private readonly usersRepository: Repository<User>,
     @InjectRepository(Unit)
     private readonly unitsRepository: Repository<Unit>,
+    @InjectRepository(JourneyPhaseConfig)
+    private readonly phaseConfigsRepository: Repository<JourneyPhaseConfig>,
   ) {}
 
   private getPeriodDays(period?: string) {
@@ -78,19 +81,32 @@ export class DashboardService {
 
   async getBehaviorAnalytics(
     currentUser: any,
-    filters: { period?: string; unitId?: string },
+    filters: { period?: string; unitId?: string; phaseId?: string },
   ) {
-    const startDate = this.getStartDate(filters.period);
-    const startDateKey = this.dateKey(startDate);
-    const scopeUnitId =
-      currentUser.role === Role.MANAGER ? currentUser.unitId : filters.unitId;
+    let startDateKey = this.dateKey(this.getStartDate(filters.period));
+    let endDateKey = this.dateKey(new Date());
+
+    if (filters.phaseId) {
+      const phase = await this.phaseConfigsRepository.findOne(filters.phaseId);
+      if (phase && phase.startDate) {
+        startDateKey = phase.startDate;
+        if (phase.endDate) {
+          endDateKey = phase.endDate;
+        }
+      }
+    }
+
+    const hasProvinceScope =
+      currentUser.role === Role.ADMIN || currentUser.role === Role.PROVINCIAL_VIEWER;
+    const scopeUnitId = currentUser.role === Role.MANAGER ? currentUser.unitId : filters.unitId;
 
     const journalQb = this.journalsRepository
       .createQueryBuilder('journal')
       .leftJoinAndSelect('journal.user', 'user')
       .leftJoinAndSelect('user.unit', 'unit')
       .leftJoinAndSelect('journal.evaluation', 'evaluation')
-      .where('journal.reportDate >= :startDateKey', { startDateKey });
+      .where('journal.reportDate >= :startDateKey', { startDateKey })
+      .andWhere('journal.reportDate <= :endDateKey', { endDateKey });
 
     if (scopeUnitId) {
       journalQb.andWhere('user.unitId = :scopeUnitId', { scopeUnitId });
@@ -219,7 +235,7 @@ export class DashboardService {
       persistenceRate: number;
     }> = [];
 
-    if (currentUser.role === Role.ADMIN && !scopeUnitId) {
+    if (hasProvinceScope && !scopeUnitId) {
       const grouped = new Map<
         string,
         { unitName: string; total: number; deep: number; full: number; persistence: number }
@@ -269,7 +285,12 @@ export class DashboardService {
         name: unit.name,
       })),
       unitComparison,
-      scope: currentUser.role === Role.ADMIN ? 'ADMIN' : 'MANAGER',
+      scope:
+        currentUser.role === Role.ADMIN
+          ? 'ADMIN'
+          : currentUser.role === Role.PROVINCIAL_VIEWER
+            ? 'PROVINCIAL_VIEWER'
+            : 'MANAGER',
     };
   }
 }

@@ -14,6 +14,7 @@ import { CatalogsModule } from './catalogs/catalogs.module';
 import { UiController } from './ui.controller';
 import { User } from './users/entities/user.entity';
 import { Unit } from './users/entities/unit.entity';
+import { LoginLog } from './users/entities/login-log.entity';
 import { Journal } from './journals/entities/journal.entity';
 import { Evaluation } from './evaluations/entities/evaluation.entity';
 import { JournalHighIncomeEform } from './journals/entities/journal-high-income-eform.entity';
@@ -21,10 +22,16 @@ import { CatalogItem } from './catalogs/entities/catalog-item.entity';
 import { BehaviorModule } from './behavior/behavior.module';
 import { WeeklyConfig } from './behavior/entities/weekly-config.entity';
 import { BehaviorChecklistLog } from './behavior/entities/behavior-checklist-log.entity';
+import { DailyFormEditLog } from './behavior/entities/daily-form-edit-log.entity';
 import { MindsetLog } from './behavior/entities/mindset-log.entity';
+import { DailyFormReview } from './behavior/entities/daily-form-review.entity';
 import { SalesActivityReport } from './behavior/entities/sales-activity-report.entity';
 import { EndOfDayLog } from './behavior/entities/end-of-day-log.entity';
 import { BeliefTransformationLog } from './behavior/entities/belief-transformation-log.entity';
+import { CareerCommitmentLog } from './behavior/entities/career-commitment-log.entity';
+import { IncomeBreakthroughLog } from './behavior/entities/income-breakthrough-log.entity';
+import { JourneyPhaseConfig } from './behavior/entities/journey-phase-config.entity';
+import { Phase3StandardLog } from './behavior/entities/phase-3-standard-log.entity';
 import { WeeklyJournalLog } from './behavior/entities/weekly-journal-log.entity';
 import { ManagerDailyScoresModule } from './manager-daily-scores/manager-daily-scores.module';
 import { ManagerDailyScoreCriterion } from './manager-daily-scores/entities/manager-daily-score-criterion.entity';
@@ -58,17 +65,24 @@ import { ManagerDailyScoreItem } from './manager-daily-scores/entities/manager-d
           entities: [
             Unit,
             User,
+            LoginLog,
             Journal,
             Evaluation,
             JournalHighIncomeEform,
             CatalogItem,
             WeeklyConfig,
             BehaviorChecklistLog,
+            DailyFormEditLog,
+            DailyFormReview,
             MindsetLog,
             SalesActivityReport,
             EndOfDayLog,
             BeliefTransformationLog,
             WeeklyJournalLog,
+            Phase3StandardLog,
+            IncomeBreakthroughLog,
+            CareerCommitmentLog,
+            JourneyPhaseConfig,
             ManagerDailyScoreCriterion,
             ManagerDailyScoreSheet,
             ManagerDailyScoreItem,
