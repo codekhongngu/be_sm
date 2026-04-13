@@ -27,7 +27,7 @@ export class ManagerDailyScoresController {
   constructor(private readonly managerDailyScoresService: ManagerDailyScoresService) {}
 
   @Get('criteria')
-  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  @Roles(Role.EMPLOYEE, Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   getCriteria() {
     return this.managerDailyScoresService.getCriteria();
   }
@@ -63,13 +63,13 @@ export class ManagerDailyScoresController {
   }
 
   @Get('entry')
-  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  @Roles(Role.EMPLOYEE, Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   getEntry(@Req() req: any, @Query('employeeId') employeeId: string, @Query('scoreDate') scoreDate: string) {
     return this.managerDailyScoresService.getEntry(req.user, employeeId, scoreDate);
   }
 
   @Post('entry')
-  @Roles(Role.MANAGER, Role.ADMIN)
+  @Roles(Role.EMPLOYEE, Role.MANAGER, Role.ADMIN)
   submitEntry(@Req() req: any, @Body() dto: SubmitManagerDailyScoreDto) {
     return this.managerDailyScoresService.submitEntry(req.user, dto);
   }

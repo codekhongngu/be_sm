@@ -50,17 +50,29 @@ export class DashboardService {
   }
 
   async getMetrics() {
-    const totalJournals = await this.journalsRepository.count();
+    const totalJournals = await this.journalsRepository.createQueryBuilder('journal')
+      .leftJoin('journal.user', 'user')
+      .leftJoin('user.unit', 'unit')
+      .where('(unit.excludeFromStatistics IS NULL OR unit.excludeFromStatistics = false)')
+      .getCount();
+
     const compliedCountRaw = await this.journalsRepository
       .createQueryBuilder('journal')
+      .leftJoin('journal.user', 'user')
+      .leftJoin('user.unit', 'unit')
       .select('COUNT(journal.id)', 'count')
       .where('journal.awarenessSubmittedAt IS NOT NULL')
       .andWhere('journal.standardsSubmittedAt IS NOT NULL')
+      .andWhere('(unit.excludeFromStatistics IS NULL OR unit.excludeFromStatistics = false)')
       .getRawOne();
+
     const declinedCountRaw = await this.journalsRepository
       .createQueryBuilder('journal')
+      .leftJoin('journal.user', 'user')
+      .leftJoin('user.unit', 'unit')
       .select('COUNT(journal.id)', 'count')
       .where("COALESCE(journal.backslideSigns, '') <> ''")
+      .andWhere('(unit.excludeFromStatistics IS NULL OR unit.excludeFromStatistics = false)')
       .getRawOne();
     const compliedCount = Number(compliedCountRaw?.count || 0);
     const declinedCount = Number(declinedCountRaw?.count || 0);
@@ -106,7 +118,8 @@ export class DashboardService {
       .leftJoinAndSelect('user.unit', 'unit')
       .leftJoinAndSelect('journal.evaluation', 'evaluation')
       .where('journal.reportDate >= :startDateKey', { startDateKey })
-      .andWhere('journal.reportDate <= :endDateKey', { endDateKey });
+      .andWhere('journal.reportDate <= :endDateKey', { endDateKey })
+      .andWhere('(unit.excludeFromStatistics IS NULL OR unit.excludeFromStatistics = false)');
 
     if (scopeUnitId) {
       journalQb.andWhere('user.unitId = :scopeUnitId', { scopeUnitId });
@@ -115,7 +128,9 @@ export class DashboardService {
 
     const employeesQb = this.usersRepository
       .createQueryBuilder('user')
-      .where('user.role = :employeeRole', { employeeRole: Role.EMPLOYEE });
+      .leftJoin('user.unit', 'unit')
+      .where('user.role = :employeeRole', { employeeRole: Role.EMPLOYEE })
+      .andWhere('(unit.excludeFromStatistics IS NULL OR unit.excludeFromStatistics = false)');
     if (scopeUnitId) {
       employeesQb.andWhere('user.unitId = :scopeUnitId', { scopeUnitId });
     } else if (currentUser.role === Role.MANAGER) {
@@ -221,9 +236,10 @@ export class DashboardService {
       .slice(0, 5)
       .map((item) => ({ text: item[0], count: item[1] }));
 
-    const unitOptionsQb = this.unitsRepository.createQueryBuilder('unit');
+    const unitOptionsQb = this.unitsRepository.createQueryBuilder('unit')
+      .where('(unit.excludeFromStatistics IS NULL OR unit.excludeFromStatistics = false)');
     if (currentUser.role === Role.MANAGER) {
-      unitOptionsQb.where('unit.id = :unitId', { unitId: currentUser.unitId });
+      unitOptionsQb.andWhere('unit.id = :unitId', { unitId: currentUser.unitId });
     }
     const unitOptions = await unitOptionsQb.orderBy('unit.code', 'ASC').getMany();
 

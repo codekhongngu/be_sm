@@ -5,6 +5,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -81,8 +82,8 @@ export class EvaluationsController {
 
   @Get('pending/list')
   @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
-  getPending(@Req() req: any) {
-    return this.evaluationsService.getPendingForManager(req.user);
+  getPending(@Req() req: any, @Query('status') status?: string) {
+    return this.evaluationsService.getPendingForManager(req.user, status);
   }
 
   @Get('analytics/weekly')

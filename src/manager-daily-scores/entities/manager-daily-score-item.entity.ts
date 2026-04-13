@@ -31,8 +31,14 @@ export class ManagerDailyScoreItem {
   @JoinColumn({ name: 'criteria_id' })
   criterion: ManagerDailyScoreCriterion;
 
-  @Column({ name: 'requirement_note', type: 'text' })
+  @Column({ name: 'requirement_note', type: 'text', nullable: true })
   requirementNote: string;
+
+  @Column({ name: 'employee_note', type: 'text', nullable: true })
+  employeeNote: string;
+
+  @Column({ name: 'self_score', type: 'numeric', precision: 10, scale: 2, default: 0 })
+  selfScore: string;
 
   @Column({ type: 'numeric', precision: 10, scale: 2, default: 0 })
   score: string;

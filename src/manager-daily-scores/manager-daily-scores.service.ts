@@ -73,6 +73,9 @@ export class ManagerDailyScoresService {
     if (currentUser.role === Role.MANAGER && employee.unitId !== currentUser.unitId) {
       throw new ForbiddenException('Chỉ được nhập điểm cho nhân viên cùng đơn vị');
     }
+    if (currentUser.role === Role.EMPLOYEE && employee.id !== (currentUser.sub || currentUser.id)) {
+      throw new ForbiddenException('Chỉ được xem phiếu của chính mình');
+    }
     return employee;
   }
 
@@ -360,11 +363,14 @@ export class ManagerDailyScoresService {
         id: sheet.id,
         scoreDate: sheet.scoreDate,
         managerId: sheet.managerId,
+        status: sheet.status,
         totalScore: this.normalizeNumber(sheet.totalScore),
         items: items.map((item) => ({
           id: item.id,
           criteriaId: item.criteriaId,
           requirementNote: item.requirementNote,
+          employeeNote: item.employeeNote,
+          selfScore: this.normalizeNumber(item.selfScore),
           score: this.normalizeNumber(item.score),
         })),
       },
@@ -397,47 +403,52 @@ export class ManagerDailyScoresService {
       if (!payloadItem) {
         throw new BadRequestException(`Thiếu điểm cho tiêu chí ${criterion.contentName}`);
       }
-      if (!String(payloadItem.requirementNote || '').trim()) {
-        throw new BadRequestException(
-          `Ghi chú yêu cầu là bắt buộc tại tiêu chí ${criterion.contentName}`,
-        );
-      }
-      const maxScore = this.normalizeNumber(criterion.maxScore);
-      if (payloadItem.score > maxScore) {
-        throw new BadRequestException(
-          `Điểm tiêu chí ${criterion.contentName} không được vượt quá ${maxScore}`,
-        );
+      
+      if (currentUser.role !== Role.EMPLOYEE) {
+        if (!String(payloadItem.requirementNote || '').trim()) {
+          throw new BadRequestException(
+            `Ghi chú yêu cầu là bắt buộc tại tiêu chí ${criterion.contentName}`,
+          );
+        }
+        const maxScore = this.normalizeNumber(criterion.maxScore);
+        if (payloadItem.score > maxScore) {
+          throw new BadRequestException(
+            `Điểm tiêu chí ${criterion.contentName} không được vượt quá ${maxScore}`,
+          );
+        }
       }
     }
 
     const criterionByCode = new Map(activeCriteria.map((item) => [item.itemCode, item]));
-    const customersContacted = criterionByCode.get(BEHAVIOR_CUSTOMERS_CONTACTED_CODE);
-    const successfulCareCalls = criterionByCode.get(BEHAVIOR_SUCCESSFUL_CARE_CALLS_CODE);
-    if (customersContacted && successfulCareCalls) {
-      const customersContactedScore = Number(
-        payloadMap.get(customersContacted.id)?.score || 0,
+    if (currentUser.role !== Role.EMPLOYEE) {
+      const customersContacted = criterionByCode.get(BEHAVIOR_CUSTOMERS_CONTACTED_CODE);
+      const successfulCareCalls = criterionByCode.get(BEHAVIOR_SUCCESSFUL_CARE_CALLS_CODE);
+      if (customersContacted && successfulCareCalls) {
+        const customersContactedScore = Number(
+          payloadMap.get(customersContacted.id)?.score || 0,
+        );
+        const successfulCareCallsScore = Number(
+          payloadMap.get(successfulCareCalls.id)?.score || 0,
+        );
+        if (customersContactedScore > 0 && successfulCareCallsScore > 0) {
+          throw new BadRequestException(
+            'Tiêu chí Số khách hàng tiếp cận và Số cuộc gọi CSKH thành công không được cùng lớn hơn 0',
+          );
+        }
+      }
+
+      const behaviorCriteriaIds = activeCriteria
+        .filter((item) => item.sectionCode === BEHAVIOR_SECTION_CODE)
+        .map((item) => item.id);
+      const behaviorSectionScore = behaviorCriteriaIds.reduce(
+        (sum, criteriaId) => sum + Number(payloadMap.get(criteriaId)?.score || 0),
+        0,
       );
-      const successfulCareCallsScore = Number(
-        payloadMap.get(successfulCareCalls.id)?.score || 0,
-      );
-      if (customersContactedScore > 0 && successfulCareCallsScore > 0) {
+      if (behaviorSectionScore > BEHAVIOR_SECTION_MAX_SCORE) {
         throw new BadRequestException(
-          'Tiêu chí Số khách hàng tiếp cận và Số cuộc gọi CSKH thành công không được cùng lớn hơn 0',
+          `Tổng điểm phần II. Thực hành hành vi không được vượt quá ${BEHAVIOR_SECTION_MAX_SCORE}`,
         );
       }
-    }
-
-    const behaviorCriteriaIds = activeCriteria
-      .filter((item) => item.sectionCode === BEHAVIOR_SECTION_CODE)
-      .map((item) => item.id);
-    const behaviorSectionScore = behaviorCriteriaIds.reduce(
-      (sum, criteriaId) => sum + Number(payloadMap.get(criteriaId)?.score || 0),
-      0,
-    );
-    if (behaviorSectionScore > BEHAVIOR_SECTION_MAX_SCORE) {
-      throw new BadRequestException(
-        `Tổng điểm phần II. Thực hành hành vi không được vượt quá ${BEHAVIOR_SECTION_MAX_SCORE}`,
-      );
     }
 
     let sheet = await this.sheetsRepository.findOne({
@@ -447,32 +458,73 @@ export class ManagerDailyScoresService {
       },
     });
 
+    let existingItems = [];
+    if (sheet) {
+      existingItems = await this.itemsRepository.find({ where: { sheetId: sheet.id } });
+    }
+
     if (!sheet) {
       sheet = this.sheetsRepository.create({
         employeeId: employee.id,
-        managerId: currentUser.sub || currentUser.id,
+        managerId: currentUser.role === Role.EMPLOYEE ? null : (currentUser.sub || currentUser.id),
         unitId: employee.unitId,
         scoreDate: normalizedDate,
+        status: currentUser.role === Role.EMPLOYEE ? 'PENDING' : 'APPROVED',
       });
     } else {
-      sheet.managerId = currentUser.sub || currentUser.id;
+      if (currentUser.role !== Role.EMPLOYEE) {
+        sheet.managerId = currentUser.sub || currentUser.id;
+        sheet.status = 'APPROVED';
+      } else {
+        sheet.status = 'PENDING';
+      }
     }
 
     const itemsPayload = [...payloadMap.values()];
+    const existingItemsMap = new Map(existingItems.map((item) => [item.criteriaId, item]));
+
+    // Nếu là nhân viên, giữ nguyên điểm và ghi chú yêu cầu của quản lý nếu đã có, chỉ cập nhật điểm tự đánh giá và ghi chú nhân viên
+    // Nếu là quản lý, giữ nguyên điểm tự đánh giá và ghi chú nhân viên nếu đã có, chỉ cập nhật điểm thẩm định và ghi chú yêu cầu
+    const finalItemsToSave = itemsPayload.map((item) => {
+      const existing = existingItemsMap.get(item.criteriaId);
+      let requirementNote = existing?.requirementNote || '';
+      let score = Number(existing?.score || 0);
+      let employeeNote = existing?.employeeNote || '';
+      let selfScore = Number(existing?.selfScore || 0);
+
+      if (currentUser.role === Role.EMPLOYEE) {
+        employeeNote = String(item.employeeNote || '').trim();
+        selfScore = Number(item.selfScore || 0);
+      } else {
+        requirementNote = String(item.requirementNote || '').trim();
+        score = Number(item.score || 0);
+      }
+
+      return {
+        criteriaId: item.criteriaId,
+        requirementNote,
+        employeeNote,
+        selfScore,
+        score,
+      };
+    });
+
     const totalScore = Number(
-      itemsPayload.reduce((sum, item) => sum + Number(item.score || 0), 0).toFixed(2),
+      finalItemsToSave.reduce((sum, item) => sum + item.score, 0).toFixed(2),
     );
     sheet.totalScore = String(totalScore);
     const savedSheet = await this.sheetsRepository.save(sheet);
 
     await this.itemsRepository.delete({ sheetId: savedSheet.id });
 
-    const itemEntities = itemsPayload.map((item) =>
+    const itemEntities = finalItemsToSave.map((item) =>
       this.itemsRepository.create({
         sheetId: savedSheet.id,
         criteriaId: item.criteriaId,
-        requirementNote: String(item.requirementNote || '').trim(),
-        score: String(Number(item.score || 0)),
+        requirementNote: item.requirementNote,
+        employeeNote: item.employeeNote,
+        selfScore: String(item.selfScore),
+        score: String(item.score),
       }),
     );
 
@@ -485,6 +537,7 @@ export class ManagerDailyScoresService {
           criteriaId: item.criteriaId,
           itemCode: criterion?.itemCode || '',
           contentName: criterion?.contentName || '',
+          selfScore: this.normalizeNumber(item.selfScore),
           score: this.normalizeNumber(item.score),
           maxScore: criterion ? this.normalizeNumber(criterion.maxScore) : 0,
           requirementNote: item.requirementNote,
@@ -544,6 +597,9 @@ export class ManagerDailyScoresService {
       qb.andWhere('sheet.unitId = :unitId', { unitId: filters.unitId });
     }
 
+    qb.andWhere('sheet.status = :status', { status: 'APPROVED' });
+    qb.andWhere('(employeeUnit.excludeFromStatistics IS NULL OR employeeUnit.excludeFromStatistics = false)');
+
     const sheets = await qb
       .orderBy('sheet.scoreDate', 'DESC')
       .addOrderBy('employee.fullName', 'ASC')
@@ -556,6 +612,7 @@ export class ManagerDailyScoresService {
 
     const rows = sheets.map((sheet) => {
       const scoresByItemCode: Record<string, number> = {};
+      const selfScoresByItemCode: Record<string, number> = {};
       const notesByItemCode: Record<string, string> = {};
 
       (sheet.items || []).forEach((item) => {
@@ -564,6 +621,7 @@ export class ManagerDailyScoresService {
           return;
         }
         scoresByItemCode[itemCode] = this.normalizeNumber(item.score);
+        selfScoresByItemCode[itemCode] = this.normalizeNumber(item.selfScore);
         notesByItemCode[itemCode] = item.requirementNote || '';
       });
 
@@ -589,6 +647,7 @@ export class ManagerDailyScoresService {
           fullName: sheet.manager?.fullName || '',
         },
         scoresByItemCode,
+        selfScoresByItemCode,
         notesByItemCode,
         sectionTotals,
         totalScore: this.normalizeNumber(sheet.totalScore),
@@ -685,7 +744,9 @@ export class ManagerDailyScoresService {
       row.employee?.fullName || '',
       row.employee?.username || '',
       row.scoreDate || '',
-      ...criteria.map((criterion) => Number(row.scoresByItemCode?.[criterion.itemCode] || 0)),
+      ...criteria.map((criterion) => 
+        Number(row.scoresByItemCode?.[criterion.itemCode] || 0)
+      ),
       ...sections.map((section) => Number(row.sectionTotals?.[section.sectionCode] || 0)),
       Number(row.totalScore || 0),
     ]);

@@ -10,21 +10,34 @@ import {
   MaxLength,
   Min,
   ValidateNested,
+  IsOptional,
 } from 'class-validator';
 
 export class SubmitManagerDailyScoreItemDto {
   @IsUUID()
   criteriaId: string;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MaxLength(4000)
-  requirementNote: string;
+  requirementNote?: string;
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(4000)
+  employeeNote?: string;
+
+  @IsOptional()
   @Type(() => Number)
   @IsNumber()
   @Min(0)
-  score: number;
+  selfScore?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  score?: number;
 }
 
 export class SubmitManagerDailyScoreDto {

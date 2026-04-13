@@ -29,7 +29,7 @@ export class ManagerDailyScoreSheet {
   @JoinColumn({ name: 'employee_id' })
   employee: User;
 
-  @Column({ name: 'manager_id' })
+  @Column({ name: 'manager_id', nullable: true })
   managerId: string;
 
   @ManyToOne(() => User, { eager: true })
@@ -42,6 +42,9 @@ export class ManagerDailyScoreSheet {
   @ManyToOne(() => Unit, { eager: true })
   @JoinColumn({ name: 'unit_id' })
   unit: Unit;
+
+  @Column({ name: 'status', length: 20, default: 'APPROVED' })
+  status: string;
 
   @Column({ name: 'total_score', type: 'numeric', precision: 10, scale: 2, default: 0 })
   totalScore: string;

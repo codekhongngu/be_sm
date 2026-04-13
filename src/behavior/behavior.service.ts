@@ -33,6 +33,7 @@ import { SubmitWeeklyJournalDto, WeeklyJournalFormType } from './dto/submit-week
 import { UpsertJourneyPhaseConfigDto } from './dto/upsert-journey-phase-config.dto';
 import { UpdateWeeklyConfigDto } from './dto/update-weekly-config.dto';
 import { validateActionTimeForDate } from '../common/utils/time-validator.util';
+import { Evaluation } from '../evaluations/entities/evaluation.entity';
 
 @Injectable()
 export class BehaviorService {
@@ -41,6 +42,8 @@ export class BehaviorService {
     private readonly journalsRepository: Repository<Journal>,
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
+    @InjectRepository(Evaluation)
+    private readonly evaluationsRepository: Repository<Evaluation>,
     @InjectRepository(WeeklyConfig)
     private readonly weeklyConfigsRepository: Repository<WeeklyConfig>,
     @InjectRepository(BehaviorChecklistLog)
@@ -73,31 +76,39 @@ export class BehaviorService {
     const logDate = this.resolveLogDate(dto.logDate);
     validateActionTimeForDate(logDate, 'Nhập nhật ký hằng ngày');
 
+    // Ensure journal exists
+    let journal = await this.journalsRepository.findOne({ userId: user.id, reportDate: logDate });
+    if (!journal) {
+      journal = this.journalsRepository.create({ userId: user.id, reportDate: logDate });
+      await this.journalsRepository.save(journal);
+    }
+
+    let result;
     if (dto.formType === BehaviorFormType.FORM_1) {
-      return this.submitForm1(user.id, dto);
+      result = await this.submitForm1(user.id, dto);
+    } else if (dto.formType === BehaviorFormType.FORM_2) {
+      result = await this.submitForm2(user.id, dto);
+    } else if (dto.formType === BehaviorFormType.FORM_3) {
+      result = await this.submitForm3(user.id, dto);
+    } else if (dto.formType === BehaviorFormType.FORM_4) {
+      result = await this.submitForm4(user.id, dto);
+    } else if (dto.formType === BehaviorFormType.FORM_5) {
+      result = await this.submitForm5(user.id, dto);
+    } else if (dto.formType === BehaviorFormType.FORM_7) {
+      result = await this.submitForm7(user.id, dto);
+    } else if (dto.formType === BehaviorFormType.FORM_8) {
+      result = await this.submitForm8(user.id, dto);
+    } else if (dto.formType === BehaviorFormType.FORM_9) {
+      result = await this.submitForm9(user.id, dto);
+    } else {
+      result = await this.submitForm12(user.id, dto);
     }
-    if (dto.formType === BehaviorFormType.FORM_2) {
-      return this.submitForm2(user.id, dto);
+
+    if (dto.formType !== BehaviorFormType.FORM_1 && dto.formType !== BehaviorFormType.FORM_2) {
+      await this.upsertDailyReview(user.id, logDate, dto.formType, 'PENDING', null);
     }
-    if (dto.formType === BehaviorFormType.FORM_3) {
-      return this.submitForm3(user.id, dto);
-    }
-    if (dto.formType === BehaviorFormType.FORM_4) {
-      return this.submitForm4(user.id, dto);
-    }
-    if (dto.formType === BehaviorFormType.FORM_5) {
-      return this.submitForm5(user.id, dto);
-    }
-    if (dto.formType === BehaviorFormType.FORM_7) {
-      return this.submitForm7(user.id, dto);
-    }
-    if (dto.formType === BehaviorFormType.FORM_8) {
-      return this.submitForm8(user.id, dto);
-    }
-    if (dto.formType === BehaviorFormType.FORM_9) {
-      return this.submitForm9(user.id, dto);
-    }
-    return this.submitForm12(user.id, dto);
+    
+    return result;
   }
 
   private resolveLogDate(logDate?: string): string {
@@ -316,15 +327,20 @@ export class BehaviorService {
     logDate: string,
     formType: string,
     status: string,
-    managerId: string,
+    managerId: string | null,
   ) {
     let review = await this.dailyFormReviewsRepository.findOne({ userId, logDate, formType });
     if (!review) {
       review = this.dailyFormReviewsRepository.create({ userId, logDate, formType });
     }
     review.status = status;
-    review.reviewedBy = managerId;
-    review.reviewedAt = new Date();
+    if (managerId) {
+      review.reviewedBy = managerId;
+      review.reviewedAt = new Date();
+    } else if (status === 'PENDING') {
+      review.reviewedBy = null as any;
+      review.reviewedAt = null as any;
+    }
     await this.dailyFormReviewsRepository.save(review);
   }
 
@@ -675,6 +691,26 @@ export class BehaviorService {
       const status = statuses[key];
       if (status) {
         await this.upsertDailyReview(journal.userId, journal.reportDate, formType, status, currentUser.id);
+
+        // Sync with evaluations if it's FORM_1_AWARENESS or FORM_1_STANDARDS
+        if ((formType === 'FORM_1_AWARENESS' || formType === 'FORM_1_STANDARDS') && status === 'APPROVED') {
+          let evaluation = await this.evaluationsRepository.findOne({ journalId: journal.id });
+          if (!evaluation) {
+            evaluation = this.evaluationsRepository.create({
+              journalId: journal.id,
+              managerId: currentUser.id,
+              awarenessReviewed: false,
+              standardsReviewed: false,
+            });
+          }
+          if (formType === 'FORM_1_AWARENESS') {
+            evaluation.awarenessReviewed = true;
+          }
+          if (formType === 'FORM_1_STANDARDS') {
+            evaluation.standardsReviewed = true;
+          }
+          await this.evaluationsRepository.save(evaluation);
+        }
       }
     }
     if (editLogs.length > 0) {
@@ -763,14 +799,33 @@ export class BehaviorService {
         u."fullName" AS "fullName",
         u.username AS "username",
         u."unitId" AS "unitId",
-        STRING_AGG(DISTINCT r.form_type, ',') AS "approvedFormsText"
+        STRING_AGG(DISTINCT sub.form_type, ',') AS "approvedFormsText"
       FROM journals j
       INNER JOIN users u ON u.id = j."userId"
-      INNER JOIN daily_form_reviews r ON r.user_id::uuid = j."userId" AND r.log_date = j."reportDate" AND r.status = 'APPROVED'
-      WHERE u.role = $1
+      LEFT JOIN units un ON un.id = u."unitId"
+      INNER JOIN (
+        SELECT user_id::uuid AS user_id, log_date, form_type 
+        FROM daily_form_reviews 
+        WHERE status = 'APPROVED'
+        UNION
+        SELECT j2."userId" AS user_id, j2."reportDate" AS log_date, 'FORM_1_AWARENESS' AS form_type 
+        FROM evaluations e 
+        INNER JOIN journals j2 ON j2.id = e."journalId" 
+        WHERE e."awarenessReviewed" = true
+        UNION
+        SELECT j2."userId" AS user_id, j2."reportDate" AS log_date, 'FORM_1_STANDARDS' AS form_type 
+        FROM evaluations e 
+        INNER JOIN journals j2 ON j2.id = e."journalId" 
+        WHERE e."standardsReviewed" = true
+        UNION
+        SELECT user_id::uuid AS user_id, log_date, 'FORM_2' AS form_type 
+        FROM behavior_checklist_logs 
+        WHERE status = 'APPROVED'
+      ) sub ON sub.user_id = j."userId" AND sub.log_date = j."reportDate"
+      WHERE u.role != 'ADMIN' AND (un."excludeFromStatistics" IS NULL OR un."excludeFromStatistics" = false)
     `;
-    const params: any[] = [Role.EMPLOYEE];
-    let paramIndex = 2;
+    const params: any[] = [];
+    let paramIndex = 1;
 
     if (filters.fromDate) {
       query += ` AND j."reportDate" >= $${paramIndex++}`;
@@ -845,6 +900,89 @@ export class BehaviorService {
     return this.behaviorChecklistLogsRepository.save(record);
   }
 
+  async getJournalSubmissionsStats(currentUser: any, date: string) {
+    const targetDate = date || new Date().toISOString().slice(0, 10);
+    
+    let usersQuery = this.usersRepository.createQueryBuilder('u')
+      .leftJoinAndSelect('u.unit', 'unit')
+      .where('u.role != :adminRole', { adminRole: Role.ADMIN })
+      .andWhere('(unit.excludeFromStatistics IS NULL OR unit.excludeFromStatistics = false)');
+
+    if (currentUser.role === Role.MANAGER) {
+      usersQuery = usersQuery.andWhere('u.unitId = :unitId', { unitId: currentUser.unitId });
+    }
+
+    const allUsers = await usersQuery.getMany();
+
+    const journals = await this.journalsRepository.find({
+      where: { reportDate: targetDate },
+      select: ['userId']
+    });
+    
+    const submittedUserIds = new Set(journals.map(j => j.userId));
+
+    const provinceStats = {
+      total: allUsers.length,
+      submitted: 0,
+      notSubmitted: 0,
+      submittedRate: 0,
+      notSubmittedRate: 0
+    };
+
+    const unitMap = new Map<string, any>();
+
+    allUsers.forEach(user => {
+      const hasSubmitted = submittedUserIds.has(user.id);
+      if (hasSubmitted) {
+        provinceStats.submitted += 1;
+      } else {
+        provinceStats.notSubmitted += 1;
+      }
+
+      const unitName = user.unit?.name || 'Chưa phân bổ';
+      const unitId = user.unitId || 'unassigned';
+
+      if (!unitMap.has(unitId)) {
+        unitMap.set(unitId, {
+          unitId,
+          unitName,
+          total: 0,
+          submitted: 0,
+          notSubmitted: 0,
+          submittedRate: 0,
+          notSubmittedRate: 0,
+          submittedUsers: [],
+          notSubmittedUsers: []
+        });
+      }
+
+      const unitStats = unitMap.get(unitId)!;
+      unitStats.total += 1;
+      if (hasSubmitted) {
+        unitStats.submitted += 1;
+        unitStats.submittedUsers.push({ id: user.id, fullName: user.fullName, username: user.username });
+      } else {
+        unitStats.notSubmitted += 1;
+        unitStats.notSubmittedUsers.push({ id: user.id, fullName: user.fullName, username: user.username });
+      }
+    });
+
+    provinceStats.submittedRate = provinceStats.total > 0 ? Number(((provinceStats.submitted / provinceStats.total) * 100).toFixed(2)) : 0;
+    provinceStats.notSubmittedRate = provinceStats.total > 0 ? Number(((provinceStats.notSubmitted / provinceStats.total) * 100).toFixed(2)) : 0;
+
+    const unitStatsArray = Array.from(unitMap.values()).map(u => {
+      u.submittedRate = u.total > 0 ? Number(((u.submitted / u.total) * 100).toFixed(2)) : 0;
+      u.notSubmittedRate = u.total > 0 ? Number(((u.notSubmitted / u.total) * 100).toFixed(2)) : 0;
+      return u;
+    });
+
+    return {
+      date: targetDate,
+      province: provinceStats,
+      units: unitStatsArray.sort((a, b) => b.submittedRate - a.submittedRate)
+    };
+  }
+
   async getWeeklySummary(weekId: string, currentUser: any) {
     const week = await this.weeklyConfigsRepository.findOne(weekId);
     if (!week) {
@@ -860,6 +998,7 @@ export class BehaviorService {
     const qb = this.behaviorChecklistLogsRepository
       .createQueryBuilder('b')
       .leftJoin(User, 'u', 'u.id = b.user_id')
+      .leftJoin('u.unit', 'un')
       .select('b.userId', 'userId')
       .addSelect('u.fullName', 'fullName')
       .addSelect('SUM(b.customerMetCount)', 'totalCustomerMet')
@@ -880,6 +1019,7 @@ export class BehaviorService {
         startDate: week.startDate,
         endDate: week.endDate,
       })
+      .andWhere('(un.excludeFromStatistics IS NULL OR un.excludeFromStatistics = false)')
       .setParameter('totalDays', totalDays);
 
     if (currentUser.role === Role.MANAGER) {

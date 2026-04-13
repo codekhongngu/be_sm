@@ -20,4 +20,8 @@ export class UpdateUnitDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  excludeFromStatistics?: boolean;
 }

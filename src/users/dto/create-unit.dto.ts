@@ -18,4 +18,8 @@ export class CreateUnitDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  excludeFromStatistics?: boolean;
 }

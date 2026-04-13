@@ -81,6 +81,15 @@ export class BehaviorController {
     });
   }
 
+  @Get('reports/journal-submissions')
+  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  getJournalSubmissionsStats(
+    @Req() req: any,
+    @Query('date') date: string,
+  ) {
+    return this.behaviorService.getJournalSubmissionsStats(req.user, date);
+  }
+
   @Get('reports/summary/weekly/:weekId')
   @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   getWeeklySummary(@Param('weekId') weekId: string, @Req() req: any) {

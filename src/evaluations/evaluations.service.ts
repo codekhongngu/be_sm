@@ -412,7 +412,7 @@ export class EvaluationsService {
     return saved;
   }
 
-  async getPendingForManager(user: any) {
+  async getPendingForManager(user: any, statusFilter: string = 'PENDING') {
     if (
       user.role !== Role.MANAGER &&
       user.role !== Role.ADMIN &&
@@ -421,6 +421,30 @@ export class EvaluationsService {
       throw new ForbiddenException('Chỉ quản lý/admin được xem danh sách chờ');
     }
     const journals = await this.journalsService.getList(user);
+    
+    // Get all pending daily_form_reviews for this manager's scope
+    const pendingReviews = await this.evaluationsRepository.manager.query(
+      `SELECT DISTINCT user_id::text, log_date::text FROM daily_form_reviews WHERE status = 'PENDING'`
+    );
+    const pendingMap = new Set(pendingReviews.map((r: any) => `${r.user_id}_${r.log_date}`));
+
+    // Get all pending Mẫu 2 (behavior_checklist_logs)
+    const pendingForm2 = await this.evaluationsRepository.manager.query(
+      `SELECT DISTINCT user_id::text, log_date::text FROM behavior_checklist_logs WHERE status = 'PENDING'`
+    );
+    const pendingForm2Map = new Set(pendingForm2.map((r: any) => `${r.user_id}_${r.log_date}`));
+
+    // Check if there are any forms submitted at all to ensure we don't show empty journals in 'ALL'
+    const anySubmittedReviews = await this.evaluationsRepository.manager.query(
+      `SELECT DISTINCT user_id::text, log_date::text FROM daily_form_reviews`
+    );
+    const submittedMap = new Set(anySubmittedReviews.map((r: any) => `${r.user_id}_${r.log_date}`));
+
+    const anySubmittedForm2 = await this.evaluationsRepository.manager.query(
+      `SELECT DISTINCT user_id::text, log_date::text FROM behavior_checklist_logs`
+    );
+    const submittedForm2Map = new Set(anySubmittedForm2.map((r: any) => `${r.user_id}_${r.log_date}`));
+
     return journals.filter(
       (journal: any) => {
         const evalData = journal.evaluation;
@@ -428,7 +452,24 @@ export class EvaluationsService {
           !!journal.awarenessSubmittedAt && !evalData?.awarenessReviewed;
         const needStandardsReview =
           !!journal.standardsSubmittedAt && !evalData?.standardsReviewed;
-        return needAwarenessReview || needStandardsReview;
+        const hasPendingOtherForms = pendingMap.has(`${journal.userId}_${journal.reportDate}`);
+        const hasPendingForm2 = pendingForm2Map.has(`${journal.userId}_${journal.reportDate}`);
+        
+        const hasAnyPending = needAwarenessReview || needStandardsReview || hasPendingOtherForms || hasPendingForm2;
+
+        const hasAnySubmitted = !!journal.awarenessSubmittedAt || !!journal.standardsSubmittedAt || submittedMap.has(`${journal.userId}_${journal.reportDate}`) || submittedForm2Map.has(`${journal.userId}_${journal.reportDate}`);
+
+        journal.hasPendingOtherForms = hasPendingOtherForms;
+        journal.hasPendingForm2 = hasPendingForm2;
+
+        if (statusFilter === 'PENDING') {
+          return hasAnyPending;
+        }
+        if (statusFilter === 'APPROVED') {
+          return !hasAnyPending && hasAnySubmitted;
+        }
+        // statusFilter === 'ALL'
+        return hasAnySubmitted;
       },
     );
   }
@@ -443,9 +484,12 @@ export class EvaluationsService {
     }
     const qb = this.evaluationsRepository
       .createQueryBuilder('evaluation')
-      .leftJoinAndSelect('evaluation.journal', 'journal');
+      .leftJoinAndSelect('evaluation.journal', 'journal')
+      .leftJoin('journal.user', 'user')
+      .leftJoin('user.unit', 'unit')
+      .andWhere('(unit.excludeFromStatistics IS NULL OR unit.excludeFromStatistics = false)');
     if (user.role === Role.MANAGER) {
-      qb.leftJoin('journal.user', 'user').andWhere('user.unitId = :unitId', {
+      qb.andWhere('user.unitId = :unitId', {
         unitId: user.unitId,
       });
     }

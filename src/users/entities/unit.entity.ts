@@ -40,6 +40,9 @@ export class Unit {
   @Column({ default: true })
   isActive: boolean;
 
+  @Column({ default: false })
+  excludeFromStatistics: boolean;
+
   @OneToMany(() => User, (user) => user.unit)
   users: User[];
 }
