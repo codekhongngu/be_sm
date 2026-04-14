@@ -174,11 +174,6 @@ export class BehaviorController {
     return this.behaviorService.upsertJourneyPhaseConfig(id, dto);
   }
 
-  @Get('system-configs/cutoff-time')
-  getCutoffTime() {
-    return this.behaviorService.getCutoffTime();
-  }
-
   @Patch('admin/system-configs/cutoff-time')
   @Roles(Role.ADMIN)
   updateCutoffTime(@Body('hour') hour: number) {

@@ -1,9 +1,13 @@
 import { Controller, Get } from '@nestjs/common';
 import { AppService } from './app.service';
+import { BehaviorService } from './behavior/behavior.service';
 
 @Controller()
 export class AppController {
-  constructor(private readonly appService: AppService) {}
+  constructor(
+    private readonly appService: AppService,
+    private readonly behaviorService: BehaviorService,
+  ) {}
 
   @Get()
   getHello(): string {
@@ -13,5 +17,10 @@ export class AppController {
   @Get('health/db')
   checkDatabase() {
     return this.appService.checkDatabase();
+  }
+
+  @Get('api/system-configs/cutoff-time')
+  getCutoffTime() {
+    return this.behaviorService.getCutoffTime();
   }
 }

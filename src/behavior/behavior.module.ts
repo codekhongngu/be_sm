@@ -44,5 +44,6 @@ import { Evaluation } from '../evaluations/entities/evaluation.entity';
   ],
   controllers: [BehaviorController],
   providers: [BehaviorService],
+  exports: [BehaviorService],
 })
 export class BehaviorModule {}
