@@ -1,20 +1,21 @@
 import { BadRequestException } from '@nestjs/common';
+import { BusinessTimeUtil } from './business-time.util';
 
-export function validateActionTimeForDate(targetDateStr: string | Date, actionName: string = 'Thao tác') {
+export function validateActionTimeForDate(targetDateStr: string | Date, actionName: string = 'Thao tác', bypassWeekendLock: boolean = false) {
   const now = new Date();
   
-  const targetDate = new Date(targetDateStr);
-  targetDate.setHours(0, 0, 0, 0);
-
-  const startAllowed = new Date(targetDate);
-  
-  const endAllowed = new Date(targetDate);
-  endAllowed.setDate(endAllowed.getDate() + 1);
-  endAllowed.setHours(7, 0, 0, 0);
-
-  if (now.getTime() < startAllowed.getTime() || now.getTime() > endAllowed.getTime()) {
+  if (!bypassWeekendLock && BusinessTimeUtil.isWeekendLocked(now)) {
     throw new BadRequestException(
-      `${actionName} chỉ được thực hiện cho ngày hiện tại. Hạn chót là 07:00 AM ngày hôm sau.`
+      'Hệ thống đã khóa thao tác cuối tuần. Vui lòng cộng dồn dữ liệu phát sinh vào tờ khai của ngày Thứ Hai kế tiếp.'
+    );
+  }
+
+  const effectiveBusinessDate = BusinessTimeUtil.getEffectiveBusinessDate(now).format('YYYY-MM-DD');
+  const targetBusinessDate = BusinessTimeUtil.getEffectiveBusinessDate(targetDateStr).format('YYYY-MM-DD');
+
+  if (effectiveBusinessDate !== targetBusinessDate) {
+    throw new BadRequestException(
+      `${actionName} chỉ được thực hiện cho ngày hiện tại (mốc cắt ngày là ${String(BusinessTimeUtil.CUTOFF_HOUR).padStart(2, '0')}:00).`
     );
   }
 }

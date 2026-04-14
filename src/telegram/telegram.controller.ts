@@ -191,6 +191,27 @@ export class TelegramController {
     )}${detailSuffix}`;
 
     await this.telegramService.sendMessage(user.unit.telegramGroupChatId, message);
+
+    // Update shared flag in DB
+    if (body.formType === BehaviorFormType.FORM_1 && journal) {
+      if (body.formPart === 'awareness') {
+        journal.awarenessShared = true;
+      } else if (body.formPart === 'standards') {
+        journal.standardsShared = true;
+      }
+      await this.journalsRepository.save(journal);
+    } else if (body.formType === BehaviorFormType.FORM_2) {
+      await this.behaviorChecklistLogsRepository.update({ userId: user.id, logDate }, { isShared: true });
+    } else if (body.formType === BehaviorFormType.FORM_3) {
+      await this.mindsetLogsRepository.update({ userId: user.id, logDate }, { isShared: true });
+    } else if (body.formType === BehaviorFormType.FORM_4) {
+      await this.salesActivityReportsRepository.update({ userId: user.id, logDate }, { isShared: true });
+    } else if (body.formType === BehaviorFormType.FORM_5) {
+      await this.endOfDayLogsRepository.update({ userId: user.id, logDate }, { isShared: true });
+    } else if (body.formType === BehaviorFormType.FORM_8) {
+      await this.beliefTransformationLogsRepository.update({ userId: user.id, logDate }, { isShared: true });
+    }
+
     return { success: true };
   }
 }

@@ -40,6 +40,15 @@ export class WeeklyJournalLog {
   @Column({ name: 'submitted_at', type: 'timestamptz', nullable: true })
   submittedAt: Date | null;
 
+  @Column({ name: 'status', length: 50, default: 'PENDING' })
+  status: string;
+
+  @Column({ name: 'manager_comment', type: 'text', nullable: true })
+  managerComment: string;
+
+  @Column({ name: 'reviewer_id', nullable: true })
+  reviewerId: string;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

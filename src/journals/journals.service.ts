@@ -130,11 +130,19 @@ export class JournalsService {
     const reportDate = this.normalizeReportDate(dto.reportDate);
 
     const journal = await this.getOrCreateDailyJournal(user, reportDate);
-    if (journal.awarenessSubmittedAt && journal.awarenessUpdateCount >= 1) {
-      throw new BadRequestException(
-        'E-form Nhận diện chỉ được cập nhật tối đa 1 lần trong ngày',
-      );
+    if (journal.awarenessShared) {
+      throw new ForbiddenException('Biểu mẫu Nhận diện đã được chia sẻ qua Telegram nên không thể chỉnh sửa thêm');
     }
+    
+    // Check evaluation status from daily_form_reviews if possible (this prevents overwriting after manager approved)
+    const review = await this.journalsRepository.manager.query(
+      `SELECT status FROM daily_form_reviews WHERE user_id = $1 AND log_date = $2 AND form_type = 'FORM_1_AWARENESS'`,
+      [user.id, reportDate]
+    );
+    if (review && review.length > 0 && review[0].status === 'APPROVED') {
+      throw new ForbiddenException('Quản lý đã duyệt biểu mẫu này, bạn không thể chỉnh sửa nữa.');
+    }
+
     journal.avoidance = dto.avoidance;
     journal.selfLimit = dto.selfLimit;
     journal.earlyStop = dto.earlyStop;
@@ -145,19 +153,16 @@ export class JournalsService {
       journal.awarenessUpdateCount += 1;
     }
     const saved = await this.journalsRepository.save(journal);
-    await this.notifyEformUpdate({
-      user,
-      journalId: saved.id,
-      reportDate,
-      eformName: 'Nhật ký nhận diện hằng ngày',
-      action: isFirstSubmit ? 'nộp' : 'cập nhật',
-      details: [
-        `Hôm nay tôi đã né điều gì: ${this.trimText(dto.avoidance)}`,
-        `Tôi có tự loại gói nào không: ${this.trimText(dto.selfLimit)}`,
-        `Tôi đã dừng tư vấn sớm ở điểm nào: ${this.trimText(dto.earlyStop)}`,
-        `Khi không bán được dịch vụ anh chị thường đỗ lỗi cho vấn đề gì: ${this.trimText(dto.blaming)}`,
-      ],
-    });
+
+    // Sync status to daily_form_reviews as PENDING
+    await this.journalsRepository.manager.query(
+      `INSERT INTO daily_form_reviews (user_id, log_date, form_type, status, updated_at) 
+       VALUES ($1, $2, 'FORM_1_AWARENESS', 'PENDING', NOW()) 
+       ON CONFLICT (user_id, log_date, form_type) 
+       DO UPDATE SET status = 'PENDING', updated_at = NOW()`,
+      [user.id, reportDate]
+    );
+
     return saved;
   }
 
@@ -168,11 +173,10 @@ export class JournalsService {
     const reportDate = this.normalizeReportDate(dto.reportDate);
 
     const journal = await this.getOrCreateDailyJournal(user, reportDate);
-    if (journal.standardsSubmittedAt && journal.standardsUpdateCount >= 1) {
-      throw new BadRequestException(
-        'E-form Giữ chuẩn chỉ được cập nhật tối đa 1 lần trong ngày',
-      );
+    if (journal.standardsShared) {
+      throw new ForbiddenException('Biểu mẫu Giữ chuẩn đã được chia sẻ qua Telegram nên không thể chỉnh sửa thêm');
     }
+    
     journal.standardsKeptText = dto.standardsKeptText;
     journal.standardsKept = this.parseStandardsFromText(dto.standardsKeptText);
     journal.backslideSigns = dto.backslideSigns;
@@ -183,18 +187,6 @@ export class JournalsService {
       journal.standardsUpdateCount += 1;
     }
     const saved = await this.journalsRepository.save(journal);
-    await this.notifyEformUpdate({
-      user,
-      journalId: saved.id,
-      reportDate,
-      eformName: 'Nhật ký giữ chuẩn thu nhập cao',
-      action: isFirstSubmit ? 'nộp' : 'cập nhật',
-      details: [
-        `Hôm nay tôi giữ được chuẩn nào: ${this.trimText(dto.standardsKeptText)}`,
-        `Dấu hiệu tụt chuẩn nào xuất hiện: ${this.trimText(dto.backslideSigns)}`,
-        `Tôi đã xử lý nó ra sao: ${this.trimText(dto.solution)}`,
-      ],
-    });
     return saved;
   }
 

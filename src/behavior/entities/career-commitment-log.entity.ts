@@ -19,4 +19,7 @@ export class CareerCommitmentLog {
 
   @Column({ name: 'commitment_signature', type: 'text', default: '' })
   commitmentSignature: string;
+
+  @Column({ type: 'boolean', default: false })
+  isShared: boolean;
 }

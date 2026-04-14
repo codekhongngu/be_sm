@@ -15,6 +15,7 @@ import { JourneyPhaseConfig } from './entities/journey-phase-config.entity';
 import { MindsetLog } from './entities/mindset-log.entity';
 import { Phase3StandardLog } from './entities/phase-3-standard-log.entity';
 import { SalesActivityReport } from './entities/sales-activity-report.entity';
+import { SystemConfig } from './entities/system-config.entity';
 import { WeeklyConfig } from './entities/weekly-config.entity';
 import { WeeklyJournalLog } from './entities/weekly-journal-log.entity';
 import { Evaluation } from '../evaluations/entities/evaluation.entity';
@@ -38,6 +39,7 @@ import { Evaluation } from '../evaluations/entities/evaluation.entity';
       IncomeBreakthroughLog,
       CareerCommitmentLog,
       JourneyPhaseConfig,
+      SystemConfig,
     ]),
   ],
   controllers: [BehaviorController],

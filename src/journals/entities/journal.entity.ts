@@ -75,6 +75,12 @@ export class Journal {
   @Column({ default: 0 })
   standardsUpdateCount: number;
 
+  @Column({ type: 'boolean', default: false })
+  awarenessShared: boolean;
+
+  @Column({ type: 'boolean', default: false })
+  standardsShared: boolean;
+
   @OneToOne(() => Evaluation, (evaluation) => evaluation.journal)
   evaluation: Evaluation;
 

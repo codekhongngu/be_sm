@@ -75,4 +75,7 @@ export class BehaviorChecklistLog {
 
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
+
+  @Column({ type: 'boolean', default: false })
+  isShared: boolean;
 }

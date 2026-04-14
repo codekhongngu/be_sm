@@ -22,4 +22,7 @@ export class Phase3StandardLog {
 
   @Column({ name: 'solution', type: 'text', default: '' })
   solution: string;
+
+  @Column({ type: 'boolean', default: false })
+  isShared: boolean;
 }

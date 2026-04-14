@@ -25,4 +25,7 @@ export class IncomeBreakthroughLog {
 
   @Column({ name: 'action_plan', type: 'text', default: '' })
   actionPlan: string;
+
+  @Column({ type: 'boolean', default: false })
+  isShared: boolean;
 }

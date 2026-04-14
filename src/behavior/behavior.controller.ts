@@ -138,6 +138,18 @@ export class BehaviorController {
     return this.behaviorService.submitWeeklyJournal(req.user, dto);
   }
 
+  @Get('manager/weekly-journals')
+  @Roles(Role.MANAGER, Role.ADMIN)
+  getManagerWeeklyJournals(@Req() req: any, @Query('weekId') weekId?: string, @Query('status') status?: string) {
+    return this.behaviorService.getManagerWeeklyJournals(req.user, weekId, status);
+  }
+
+  @Patch('manager/weekly-journals/review')
+  @Roles(Role.MANAGER, Role.ADMIN)
+  reviewWeeklyJournal(@Req() req: any, @Body() dto: any) {
+    return this.behaviorService.reviewWeeklyJournal(req.user, dto);
+  }
+
   @Get('journey-phase-configs')
   @Roles(Role.EMPLOYEE, Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   getJourneyPhaseConfigs() {
@@ -160,5 +172,16 @@ export class BehaviorController {
   @Roles(Role.ADMIN)
   updateJourneyPhaseConfig(@Param('id') id: string, @Body() dto: UpsertJourneyPhaseConfigDto) {
     return this.behaviorService.upsertJourneyPhaseConfig(id, dto);
+  }
+
+  @Get('system-configs/cutoff-time')
+  getCutoffTime() {
+    return this.behaviorService.getCutoffTime();
+  }
+
+  @Patch('admin/system-configs/cutoff-time')
+  @Roles(Role.ADMIN)
+  updateCutoffTime(@Body('hour') hour: number) {
+    return this.behaviorService.updateCutoffTime(hour);
   }
 }

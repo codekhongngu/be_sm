@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Role } from 'src/common/enums/role.enum';
@@ -23,6 +24,7 @@ import { JourneyPhaseConfig } from './entities/journey-phase-config.entity';
 import { MindsetLog } from './entities/mindset-log.entity';
 import { Phase3StandardLog } from './entities/phase-3-standard-log.entity';
 import { SalesActivityReport } from './entities/sales-activity-report.entity';
+import { SystemConfig } from './entities/system-config.entity';
 import { WeeklyConfig } from './entities/weekly-config.entity';
 import { WeeklyJournalLog } from './entities/weekly-journal-log.entity';
 import { EvaluateBehaviorLogDto } from './dto/evaluate-behavior-log.dto';
@@ -34,9 +36,10 @@ import { UpsertJourneyPhaseConfigDto } from './dto/upsert-journey-phase-config.d
 import { UpdateWeeklyConfigDto } from './dto/update-weekly-config.dto';
 import { validateActionTimeForDate } from '../common/utils/time-validator.util';
 import { Evaluation } from '../evaluations/entities/evaluation.entity';
+import { BusinessTimeUtil } from '../common/utils/business-time.util';
 
 @Injectable()
-export class BehaviorService {
+export class BehaviorService implements OnModuleInit {
   constructor(
     @InjectRepository(Journal)
     private readonly journalsRepository: Repository<Journal>,
@@ -70,11 +73,28 @@ export class BehaviorService {
     private readonly dailyFormEditLogsRepository: Repository<DailyFormEditLog>,
     @InjectRepository(WeeklyJournalLog)
     private readonly weeklyJournalLogsRepository: Repository<WeeklyJournalLog>,
+    @InjectRepository(SystemConfig)
+    private readonly systemConfigsRepository: Repository<SystemConfig>,
   ) {}
+
+  async onModuleInit() {
+    const config = await this.systemConfigsRepository.findOne({ where: { key: 'CUTOFF_HOUR' } });
+    if (config && !isNaN(Number(config.value))) {
+      BusinessTimeUtil.CUTOFF_HOUR = Number(config.value);
+    }
+  }
 
   async submitLog(user: any, dto: SubmitLogDto) {
     const logDate = this.resolveLogDate(dto.logDate);
     validateActionTimeForDate(logDate, 'Nhập nhật ký hằng ngày');
+
+    // Kiểm tra trạng thái duyệt của Quản lý trước
+    const review = await this.dailyFormReviewsRepository.findOne({
+      where: { userId: user.id, logDate, formType: dto.formType }
+    });
+    if (review && review.status === 'APPROVED') {
+      throw new ForbiddenException('Quản lý đã duyệt biểu mẫu này, bạn không thể chỉnh sửa nữa.');
+    }
 
     // Ensure journal exists
     let journal = await this.journalsRepository.findOne({ userId: user.id, reportDate: logDate });
@@ -141,6 +161,9 @@ export class BehaviorService {
         'Bản ghi đã được duyệt Approved, nhân viên không thể chỉnh sửa',
       );
     }
+    if (record?.isShared) {
+      throw new ForbiddenException('Biểu mẫu đã được chia sẻ qua Telegram nên không thể chỉnh sửa thêm');
+    }
 
     if (!record) {
       record = this.behaviorChecklistLogsRepository.create({ userId, logDate });
@@ -164,6 +187,9 @@ export class BehaviorService {
   private async submitForm3(userId: string, dto: SubmitLogDto) {
     const logDate = this.resolveLogDate(dto.logDate);
     let record = await this.mindsetLogsRepository.findOne({ userId, logDate });
+    if (record?.isShared) {
+      throw new ForbiddenException('Biểu mẫu đã được chia sẻ qua Telegram nên không thể chỉnh sửa thêm');
+    }
     if (!record) {
       record = this.mindsetLogsRepository.create({ userId, logDate });
     }
@@ -175,6 +201,11 @@ export class BehaviorService {
 
   private async submitForm4(userId: string, dto: SubmitLogDto) {
     const logDate = this.resolveLogDate(dto.logDate);
+    const existing = await this.salesActivityReportsRepository.findOne({ userId, logDate });
+    if (existing?.isShared) {
+      throw new ForbiddenException('Biểu mẫu đã được chia sẻ qua Telegram nên không thể chỉnh sửa thêm');
+    }
+    
     await this.salesActivityReportsRepository.delete({ userId, logDate });
 
     const activities = dto.salesActivities && dto.salesActivities.length > 0 
@@ -205,6 +236,9 @@ export class BehaviorService {
   private async submitForm5(userId: string, dto: SubmitLogDto) {
     const logDate = this.resolveLogDate(dto.logDate);
     let record = await this.endOfDayLogsRepository.findOne({ userId, logDate });
+    if (record?.isShared) {
+      throw new ForbiddenException('Biểu mẫu đã được chia sẻ qua Telegram nên không thể chỉnh sửa thêm');
+    }
     if (!record) {
       record = this.endOfDayLogsRepository.create({ userId, logDate });
     }
@@ -216,6 +250,11 @@ export class BehaviorService {
 
   private async submitForm8(userId: string, dto: SubmitLogDto) {
     const logDate = this.resolveLogDate(dto.logDate);
+    const existing = await this.beliefTransformationLogsRepository.findOne({ userId, logDate });
+    if (existing?.isShared) {
+      throw new ForbiddenException('Biểu mẫu đã được chia sẻ qua Telegram nên không thể chỉnh sửa thêm');
+    }
+    
     await this.beliefTransformationLogsRepository.delete({ userId, logDate });
 
     const items =
@@ -762,6 +801,28 @@ export class BehaviorService {
     return this.journeyPhaseConfigsRepository.save(item);
   }
 
+  async getCutoffTime() {
+    const config = await this.systemConfigsRepository.findOne({ where: { key: 'CUTOFF_HOUR' } });
+    return { hour: config ? Number(config.value) : 7 };
+  }
+
+  async updateCutoffTime(hour: number) {
+    if (hour < 0 || hour > 23) {
+      throw new BadRequestException('Giờ cắt ngày phải từ 0 đến 23');
+    }
+    let config = await this.systemConfigsRepository.findOne({ where: { key: 'CUTOFF_HOUR' } });
+    if (!config) {
+      config = this.systemConfigsRepository.create({ key: 'CUTOFF_HOUR' });
+    }
+    config.value = String(hour);
+    await this.systemConfigsRepository.save(config);
+    
+    // Cập nhật cấu hình hiện tại trong bộ nhớ
+    BusinessTimeUtil.CUTOFF_HOUR = hour;
+    
+    return { success: true, hour };
+  }
+
   async getPendingLogsForManager(currentUser: any) {
     const week = await this.getCurrentWeek();
     const qb = this.behaviorChecklistLogsRepository
@@ -905,7 +966,7 @@ export class BehaviorService {
     
     let usersQuery = this.usersRepository.createQueryBuilder('u')
       .leftJoinAndSelect('u.unit', 'unit')
-      .where('u.role != :adminRole', { adminRole: Role.ADMIN })
+      .where('u.role = :employeeRole', { employeeRole: Role.EMPLOYEE })
       .andWhere('(unit.excludeFromStatistics IS NULL OR unit.excludeFromStatistics = false)');
 
     if (currentUser.role === Role.MANAGER) {
@@ -1208,6 +1269,84 @@ export class BehaviorService {
       throw new NotFoundException('Không tìm thấy tuần cần xóa');
     }
     await this.weeklyConfigsRepository.remove(target);
-    return { success: true };
+    return { message: 'Đã xóa tuần' };
+  }
+
+  async getManagerWeeklyJournals(user: User, weekId?: string, status?: string) {
+    const qb = this.weeklyJournalLogsRepository
+      .createQueryBuilder('l')
+      .leftJoinAndSelect('l.user', 'u')
+      .leftJoinAndSelect('u.unit', 'un')
+      .leftJoinAndSelect('l.week', 'w')
+      .orderBy('w.startDate', 'DESC')
+      .addOrderBy('u.fullName', 'ASC');
+
+    if (user.role === Role.MANAGER) {
+      qb.andWhere('u.unitId = :unitId', { unitId: user.unitId });
+    }
+
+    if (weekId) {
+      qb.andWhere('l.weekId = :weekId', { weekId });
+    }
+
+    if (status) {
+      qb.andWhere('l.status = :status', { status });
+    }
+
+    const logs = await qb.getMany();
+
+    // Group logs by user and week to make it easier for frontend
+    const map = new Map<string, any>();
+    logs.forEach(log => {
+      const key = `${log.userId}_${log.weekId}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          id: key,
+          user: log.user,
+          week: log.week,
+          status: log.status,
+          managerComment: log.managerComment,
+          submittedAt: log.submittedAt,
+          forms: []
+        });
+      }
+      map.get(key).forms.push({
+        formType: log.formType,
+        entries: log.entries,
+        id: log.id
+      });
+      
+      // Update overall status if any form is PENDING or REJECTED
+      if (log.status === 'PENDING') map.get(key).status = 'PENDING';
+      else if (log.status === 'REJECTED' && map.get(key).status !== 'PENDING') map.get(key).status = 'REJECTED';
+    });
+
+    return Array.from(map.values());
+  }
+
+  async reviewWeeklyJournal(manager: User, dto: any) {
+    const { userId, weekId, status, managerComment } = dto;
+    if (!userId || !weekId || !status) {
+      throw new BadRequestException('Thiếu thông tin userId, weekId hoặc status');
+    }
+
+    const logs = await this.weeklyJournalLogsRepository.find({
+      where: { userId, weekId }
+    });
+
+    if (!logs.length) {
+      throw new NotFoundException('Không tìm thấy nhật ký tuần của nhân viên này');
+    }
+
+    for (const log of logs) {
+      log.status = status;
+      if (managerComment !== undefined) {
+        log.managerComment = managerComment;
+      }
+      log.reviewerId = manager.id;
+    }
+
+    await this.weeklyJournalLogsRepository.save(logs);
+    return { message: 'Đã cập nhật trạng thái nhật ký tuần' };
   }
 }
