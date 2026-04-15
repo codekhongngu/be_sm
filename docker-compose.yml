@@ -28,6 +28,7 @@ services:
     env_file:
       - .env
     environment:
+      TZ: Asia/Ho_Chi_Minh
       PORT: ${PORT:-3001}
       DB_HOST: postgres
       DB_PORT: 5432

@@ -1,32 +1,30 @@
+import * as moment from 'moment-timezone';
+
 export class BusinessTimeUtil {
   static CUTOFF_HOUR = 7;
 
   /**
-   * Tính toán Ngày Nghiệp Vụ dựa trên mốc Cut-off 07:00 AM
+   * Tính toán Ngày Nghiệp Vụ dựa trên mốc Cut-off 07:00 AM (Vietnam Time)
    */
   static getEffectiveBusinessDate(systemTime: Date | string | number = new Date()): { format: (fmt: string) => string, day: () => number, toDate: () => Date } {
-    const time = new Date(systemTime);
-    
-    // Nếu tham số truyền vào là dạng YYYY-MM-DD (VD: '2026-04-14'), ta coi như đó chính là business date cần xử lý,
-    // Không áp dụng time-shifting vì string này thường chỉ có YYYY-MM-DD mà không có giờ cụ thể.
     const isDateOnlyString = typeof systemTime === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(systemTime);
 
-    if (!isDateOnlyString && time.getHours() < this.CUTOFF_HOUR) {
-      time.setDate(time.getDate() - 1);
+    let m = moment.tz(systemTime, 'Asia/Ho_Chi_Minh');
+
+    if (!isDateOnlyString && m.hour() < this.CUTOFF_HOUR) {
+      m = m.subtract(1, 'day');
     }
-    time.setHours(0, 0, 0, 0);
     
+    // Đặt thời gian về 00:00:00 của ngày business
+    m = m.startOf('day');
+
     return {
       format: (fmt: string) => {
-        // Simple YYYY-MM-DD formatter
-        const y = time.getFullYear();
-        const m = String(time.getMonth() + 1).padStart(2, '0');
-        const d = String(time.getDate()).padStart(2, '0');
-        if (fmt === 'YYYY-MM-DD') return `${y}-${m}-${d}`;
-        return time.toISOString();
+        if (fmt === 'YYYY-MM-DD') return m.format('YYYY-MM-DD');
+        return m.toISOString();
       },
-      day: () => time.getDay(),
-      toDate: () => time
+      day: () => m.day(),
+      toDate: () => m.toDate()
     };
   }
 

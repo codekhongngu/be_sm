@@ -7,6 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Role } from 'src/common/enums/role.enum';
 import { User } from 'src/users/entities/user.entity';
+import { Unit } from 'src/users/entities/unit.entity';
 import { Repository } from 'typeorm';
 import * as XLSX from 'xlsx';
 import { CreateManagerDailyScoreCriterionDto } from './dto/create-manager-daily-score-criterion.dto';
@@ -43,14 +44,16 @@ const BEHAVIOR_SUCCESSFUL_CARE_CALLS_CODE = 'BEHAVIOR_SUCCESSFUL_CARE_CALLS';
 @Injectable()
 export class ManagerDailyScoresService {
   constructor(
-    @InjectRepository(User)
-    private readonly usersRepository: Repository<User>,
     @InjectRepository(ManagerDailyScoreCriterion)
     private readonly criteriaRepository: Repository<ManagerDailyScoreCriterion>,
     @InjectRepository(ManagerDailyScoreSheet)
     private readonly sheetsRepository: Repository<ManagerDailyScoreSheet>,
     @InjectRepository(ManagerDailyScoreItem)
     private readonly itemsRepository: Repository<ManagerDailyScoreItem>,
+    @InjectRepository(User)
+    private readonly usersRepository: Repository<User>,
+    @InjectRepository(Unit)
+    private readonly unitsRepository: Repository<Unit>,
   ) {}
 
   private toDateKey(value: string) {
@@ -664,28 +667,41 @@ export class ManagerDailyScoresService {
         unitId: string;
         unitName: string;
         totalScore: number;
-        employeeIds: Set<string>;
+        employeeCount: number;
       }
     >();
+
+    const allUnitsQb = this.unitsRepository.createQueryBuilder('unit')
+      .where('(unit.excludeFromStatistics IS NULL OR unit.excludeFromStatistics = false)');
+    if (currentUser.role === Role.MANAGER) {
+      allUnitsQb.andWhere('unit.id = :unitId', { unitId: currentUser.unitId });
+    } else if (filters.unitId) {
+      allUnitsQb.andWhere('unit.id = :unitId', { unitId: filters.unitId });
+    }
+    const allUnits = await allUnitsQb.getMany();
+
+    for (const unit of allUnits) {
+      const employeeCount = await this.usersRepository.count({
+        where: { unitId: unit.id, role: Role.EMPLOYEE }
+      });
+      unitMap.set(unit.name, {
+        unitId: unit.id,
+        unitName: unit.name,
+        totalScore: 0,
+        employeeCount: employeeCount
+      });
+    }
+
     rows.forEach((row) => {
       const unitName = row.unitName || 'Chưa rõ đơn vị';
-      let unit = unitMap.get(unitName);
-      if (!unit) {
-        unit = {
-          unitId: row.employee?.unitId || '',
-          unitName,
-          totalScore: 0,
-          employeeIds: new Set<string>(),
-        };
-        unitMap.set(unitName, unit);
-      }
-      unit.totalScore += Number(row.totalScore || 0);
-      if (row.employee?.id) {
-        unit.employeeIds.add(row.employee.id);
+      const unit = unitMap.get(unitName);
+      if (unit) {
+        unit.totalScore += Number(row.totalScore || 0);
       }
     });
+
     const unitRows = [...unitMap.values()].map((item) => {
-      const employeeCount = item.employeeIds.size;
+      const employeeCount = item.employeeCount;
       const averageScore = employeeCount === 0 ? 0 : Number((item.totalScore / employeeCount).toFixed(2));
       return {
         unitId: item.unitId,

@@ -8,6 +8,11 @@ import { User } from 'src/users/entities/user.entity';
 import { Repository } from 'typeorm';
 import { JourneyPhaseConfig } from 'src/behavior/entities/journey-phase-config.entity';
 
+import { BehaviorChecklistLog } from 'src/behavior/entities/behavior-checklist-log.entity';
+import { MindsetLog } from 'src/behavior/entities/mindset-log.entity';
+import { SalesActivityReport } from 'src/behavior/entities/sales-activity-report.entity';
+import { EndOfDayLog } from 'src/behavior/entities/end-of-day-log.entity';
+
 @Injectable()
 export class DashboardService {
   constructor(
@@ -21,6 +26,14 @@ export class DashboardService {
     private readonly unitsRepository: Repository<Unit>,
     @InjectRepository(JourneyPhaseConfig)
     private readonly phaseConfigsRepository: Repository<JourneyPhaseConfig>,
+    @InjectRepository(BehaviorChecklistLog)
+    private readonly behaviorChecklistRepository: Repository<BehaviorChecklistLog>,
+    @InjectRepository(MindsetLog)
+    private readonly mindsetRepository: Repository<MindsetLog>,
+    @InjectRepository(SalesActivityReport)
+    private readonly salesActivityRepository: Repository<SalesActivityReport>,
+    @InjectRepository(EndOfDayLog)
+    private readonly endOfDayRepository: Repository<EndOfDayLog>,
   ) {}
 
   private getPeriodDays(period?: string) {
@@ -164,28 +177,94 @@ export class DashboardService {
     const averagePassRate =
       (standardsDeepRate + standardsFullRate + standardsPersistenceRate) / 3;
 
+    const mau1Count = journals.filter((item) => item.awarenessSubmittedAt).length;
+
+    // Get counts for Mẫu 2
+    const mau2Qb = this.behaviorChecklistRepository.createQueryBuilder('log')
+      .leftJoin('log.user', 'user')
+      .leftJoin('user.unit', 'unit')
+      .where('log.logDate >= :startDateKey', { startDateKey })
+      .andWhere('log.logDate <= :endDateKey', { endDateKey })
+      .andWhere('(unit.excludeFromStatistics IS NULL OR unit.excludeFromStatistics = false)');
+    if (scopeUnitId) mau2Qb.andWhere('user.unitId = :scopeUnitId', { scopeUnitId });
+    else if (currentUser.role === Role.MANAGER) mau2Qb.andWhere('user.unitId = :managerUnitId', { managerUnitId: currentUser.unitId });
+    const mau2Count = await mau2Qb.getCount();
+
+    // Mẫu 3
+    const mau3Qb = this.mindsetRepository.createQueryBuilder('log')
+      .leftJoin('log.user', 'user')
+      .leftJoin('user.unit', 'unit')
+      .where('log.logDate >= :startDateKey', { startDateKey })
+      .andWhere('log.logDate <= :endDateKey', { endDateKey })
+      .andWhere('(unit.excludeFromStatistics IS NULL OR unit.excludeFromStatistics = false)');
+    if (scopeUnitId) mau3Qb.andWhere('user.unitId = :scopeUnitId', { scopeUnitId });
+    else if (currentUser.role === Role.MANAGER) mau3Qb.andWhere('user.unitId = :managerUnitId', { managerUnitId: currentUser.unitId });
+    const mau3Count = await mau3Qb.getCount();
+
+    // Mẫu 4
+    const mau4Qb = this.salesActivityRepository.createQueryBuilder('log')
+      .leftJoin('log.user', 'user')
+      .leftJoin('user.unit', 'unit')
+      .where('log.logDate >= :startDateKey', { startDateKey })
+      .andWhere('log.logDate <= :endDateKey', { endDateKey })
+      .andWhere('(unit.excludeFromStatistics IS NULL OR unit.excludeFromStatistics = false)');
+    if (scopeUnitId) mau4Qb.andWhere('user.unitId = :scopeUnitId', { scopeUnitId });
+    else if (currentUser.role === Role.MANAGER) mau4Qb.andWhere('user.unitId = :managerUnitId', { managerUnitId: currentUser.unitId });
+    const mau4Count = await mau4Qb.getCount();
+
+    // Mẫu 5
+    const mau5Qb = this.endOfDayRepository.createQueryBuilder('log')
+      .leftJoin('log.user', 'user')
+      .leftJoin('user.unit', 'unit')
+      .where('log.logDate >= :startDateKey', { startDateKey })
+      .andWhere('log.logDate <= :endDateKey', { endDateKey })
+      .andWhere('(unit.excludeFromStatistics IS NULL OR unit.excludeFromStatistics = false)');
+    if (scopeUnitId) mau5Qb.andWhere('user.unitId = :scopeUnitId', { scopeUnitId });
+    else if (currentUser.role === Role.MANAGER) mau5Qb.andWhere('user.unitId = :managerUnitId', { managerUnitId: currentUser.unitId });
+    const mau5Count = await mau5Qb.getCount();
+
+    const expectedJournals = totalJournals || 1;
+
+    const mau1Rate = (mau1Count / expectedJournals) * 100;
+    const mau2Rate = (mau2Count / expectedJournals) * 100;
+    const mau3Rate = (mau3Count / expectedJournals) * 100;
+    const mau4Rate = (mau4Count / expectedJournals) * 100;
+    const mau5Rate = (mau5Count / expectedJournals) * 100;
+
     const barData = [
       {
-        skill: 'Hỏi sâu',
-        daThucHien: standardsDeepDone,
-        chuaThucHien: totalEvaluations - standardsDeepDone,
+        skill: 'Mẫu 1',
+        daThucHien: mau1Count,
+        chuaThucHien: Math.max(0, expectedJournals - mau1Count),
       },
       {
-        skill: 'Đề xuất đủ',
-        daThucHien: standardsFullDone,
-        chuaThucHien: totalEvaluations - standardsFullDone,
+        skill: 'Mẫu 2',
+        daThucHien: mau2Count,
+        chuaThucHien: Math.max(0, expectedJournals - mau2Count),
       },
       {
-        skill: 'Theo đến quyết',
-        daThucHien: standardsPersistenceDone,
-        chuaThucHien: totalEvaluations - standardsPersistenceDone,
+        skill: 'Mẫu 3',
+        daThucHien: mau3Count,
+        chuaThucHien: Math.max(0, expectedJournals - mau3Count),
+      },
+      {
+        skill: 'Mẫu 4',
+        daThucHien: mau4Count,
+        chuaThucHien: Math.max(0, expectedJournals - mau4Count),
+      },
+      {
+        skill: 'Mẫu 5',
+        daThucHien: mau5Count,
+        chuaThucHien: Math.max(0, expectedJournals - mau5Count),
       },
     ];
 
     const radarData = [
-      { metric: 'Hỏi sâu', value: Number(standardsDeepRate.toFixed(2)) },
-      { metric: 'Đề xuất đủ', value: Number(standardsFullRate.toFixed(2)) },
-      { metric: 'Theo đến quyết', value: Number(standardsPersistenceRate.toFixed(2)) },
+      { metric: 'Mẫu 1', value: Number(mau1Rate.toFixed(2)) },
+      { metric: 'Mẫu 2', value: Number(mau2Rate.toFixed(2)) },
+      { metric: 'Mẫu 3', value: Number(mau3Rate.toFixed(2)) },
+      { metric: 'Mẫu 4', value: Number(mau4Rate.toFixed(2)) },
+      { metric: 'Mẫu 5', value: Number(mau5Rate.toFixed(2)) },
     ];
 
     const now = new Date();
@@ -206,13 +285,7 @@ export class DashboardService {
       const bucket = bucketMap.get(weekStart);
       if (!bucket) return;
       bucket.total += 1;
-      const evalData = journal.evaluation;
-      if (
-        evalData &&
-        evalData.deepInquiryStatus &&
-        evalData.fullProposalStatus &&
-        evalData.persistenceStatus
-      ) {
+      if (journal.awarenessSubmittedAt) {
         bucket.pass += 1;
       }
     });
