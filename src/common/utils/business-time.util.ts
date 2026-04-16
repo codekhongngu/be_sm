@@ -2,17 +2,19 @@ import * as moment from 'moment-timezone';
 
 export class BusinessTimeUtil {
   static CUTOFF_HOUR = 7;
+  static CUTOFF_HOUR_MANAGER = 7;
   static DISABLE_CROSS_TIME_MANAGER = false;
 
   /**
    * Tính toán Ngày Nghiệp Vụ dựa trên mốc Cut-off 07:00 AM (Vietnam Time)
    */
-  static getEffectiveBusinessDate(systemTime: Date | string | number = new Date()): { format: (fmt: string) => string, day: () => number, toDate: () => Date } {
-    const isDateOnlyString = typeof systemTime === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(systemTime);
+  static getEffectiveBusinessDate(systemTime: Date | string | number = new Date(), cutoffHour?: number): { format: (fmt: string) => string, day: () => number, toDate: () => Date } {
+    const isDateOnlyString = typeof systemTime === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(systemTime as string);
 
     let m = moment.tz(systemTime, 'Asia/Ho_Chi_Minh');
+    const appliedCutoff = cutoffHour !== undefined ? cutoffHour : this.CUTOFF_HOUR;
 
-    if (!isDateOnlyString && m.hour() < this.CUTOFF_HOUR) {
+    if (!isDateOnlyString && m.hour() < appliedCutoff) {
       m = m.subtract(1, 'day');
     }
     

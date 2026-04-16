@@ -87,6 +87,10 @@ export class BehaviorService implements OnModuleInit {
     if (config && !isNaN(Number(config.value))) {
       BusinessTimeUtil.CUTOFF_HOUR = Number(config.value);
     }
+    const managerConfig = await this.systemConfigsRepository.findOne({ where: { key: 'CUTOFF_HOUR_MANAGER' } });
+    if (managerConfig && !isNaN(Number(managerConfig.value))) {
+      BusinessTimeUtil.CUTOFF_HOUR_MANAGER = Number(managerConfig.value);
+    }
     const disableConfig = await this.systemConfigsRepository.findOne({ where: { key: 'DISABLE_CROSS_TIME_MANAGER' } });
     if (disableConfig) {
       BusinessTimeUtil.DISABLE_CROSS_TIME_MANAGER = disableConfig.value === 'true';
@@ -812,22 +816,28 @@ export class BehaviorService implements OnModuleInit {
 
   async getCutoffTime() {
     const config = await this.systemConfigsRepository.findOne({ where: { key: 'CUTOFF_HOUR' } });
-    return { hour: config ? Number(config.value) : 7 };
+    const managerConfig = await this.systemConfigsRepository.findOne({ where: { key: 'CUTOFF_HOUR_MANAGER' } });
+    return { 
+      hour: config ? Number(config.value) : 7,
+      hourManager: managerConfig ? Number(managerConfig.value) : 7
+    };
   }
 
   async getSystemConfigs() {
     const cutoffConfig = await this.systemConfigsRepository.findOne({ where: { key: 'CUTOFF_HOUR' } });
+    const cutoffManagerConfig = await this.systemConfigsRepository.findOne({ where: { key: 'CUTOFF_HOUR_MANAGER' } });
     const disableConfig = await this.systemConfigsRepository.findOne({ where: { key: 'DISABLE_CROSS_TIME_MANAGER' } });
     return {
       cutoffHour: cutoffConfig ? Number(cutoffConfig.value) : 7,
+      cutoffHourManager: cutoffManagerConfig ? Number(cutoffManagerConfig.value) : 7,
       disableCrossTimeManager: disableConfig ? disableConfig.value === 'true' : false
     };
   }
 
-  async updateSystemConfigs(payload: { cutoffHour?: number, disableCrossTimeManager?: boolean }) {
+  async updateSystemConfigs(payload: { cutoffHour?: number, cutoffHourManager?: number, disableCrossTimeManager?: boolean }) {
     if (payload.cutoffHour !== undefined) {
       if (isNaN(payload.cutoffHour) || payload.cutoffHour < 0 || payload.cutoffHour > 23) {
-        throw new BadRequestException('Giờ cắt ngày phải là số từ 0 đến 23');
+        throw new BadRequestException('Giờ cắt ngày cho nhân viên phải là số từ 0 đến 23');
       }
       let config = await this.systemConfigsRepository.findOne({ where: { key: 'CUTOFF_HOUR' } });
       if (!config) {
@@ -836,6 +846,19 @@ export class BehaviorService implements OnModuleInit {
       config.value = String(payload.cutoffHour);
       await this.systemConfigsRepository.save(config);
       BusinessTimeUtil.CUTOFF_HOUR = payload.cutoffHour;
+    }
+
+    if (payload.cutoffHourManager !== undefined) {
+      if (isNaN(payload.cutoffHourManager) || payload.cutoffHourManager < 0 || payload.cutoffHourManager > 23) {
+        throw new BadRequestException('Giờ cắt ngày cho quản lý phải là số từ 0 đến 23');
+      }
+      let config = await this.systemConfigsRepository.findOne({ where: { key: 'CUTOFF_HOUR_MANAGER' } });
+      if (!config) {
+        config = this.systemConfigsRepository.create({ key: 'CUTOFF_HOUR_MANAGER' });
+      }
+      config.value = String(payload.cutoffHourManager);
+      await this.systemConfigsRepository.save(config);
+      BusinessTimeUtil.CUTOFF_HOUR_MANAGER = payload.cutoffHourManager;
     }
 
     if (payload.disableCrossTimeManager !== undefined) {
