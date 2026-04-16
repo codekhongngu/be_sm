@@ -1,9 +1,10 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Journal } from 'src/journals/entities/journal.entity';
 import { User } from 'src/users/entities/user.entity';
 import { BehaviorController } from './behavior.controller';
 import { BehaviorService } from './behavior.service';
+import { UsersModule } from '../users/users.module';
 import { BehaviorChecklistLog } from './entities/behavior-checklist-log.entity';
 import { BeliefTransformationLog } from './entities/belief-transformation-log.entity';
 import { DailyFormEditLog } from './entities/daily-form-edit-log.entity';
@@ -19,6 +20,7 @@ import { SystemConfig } from './entities/system-config.entity';
 import { WeeklyConfig } from './entities/weekly-config.entity';
 import { WeeklyJournalLog } from './entities/weekly-journal-log.entity';
 import { Evaluation } from '../evaluations/entities/evaluation.entity';
+import { WeeklyReportSubmission } from './entities/weekly-report-submission.entity';
 
 @Module({
   imports: [
@@ -40,7 +42,9 @@ import { Evaluation } from '../evaluations/entities/evaluation.entity';
       CareerCommitmentLog,
       JourneyPhaseConfig,
       SystemConfig,
+      WeeklyReportSubmission,
     ]),
+    forwardRef(() => UsersModule),
   ],
   controllers: [BehaviorController],
   providers: [BehaviorService],

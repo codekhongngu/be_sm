@@ -2,6 +2,7 @@ import * as moment from 'moment-timezone';
 
 export class BusinessTimeUtil {
   static CUTOFF_HOUR = 7;
+  static DISABLE_CROSS_TIME_MANAGER = false;
 
   /**
    * Tính toán Ngày Nghiệp Vụ dựa trên mốc Cut-off 07:00 AM (Vietnam Time)

@@ -38,6 +38,7 @@ import { ManagerDailyScoreCriterion } from './manager-daily-scores/entities/mana
 import { ManagerDailyScoreSheet } from './manager-daily-scores/entities/manager-daily-score-sheet.entity';
 import { ManagerDailyScoreItem } from './manager-daily-scores/entities/manager-daily-score-item.entity';
 import { SystemConfig } from './behavior/entities/system-config.entity';
+import { WeeklyReportSubmission } from './behavior/entities/weekly-report-submission.entity';
 
 @Module({
   imports: [
@@ -88,6 +89,7 @@ import { SystemConfig } from './behavior/entities/system-config.entity';
             ManagerDailyScoreSheet,
             ManagerDailyScoreItem,
             SystemConfig,
+            WeeklyReportSubmission,
           ],
           synchronize: dbSync,
           ...(requireSsl

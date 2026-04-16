@@ -38,6 +38,9 @@ import { validateActionTimeForDate } from '../common/utils/time-validator.util';
 import { Evaluation } from '../evaluations/entities/evaluation.entity';
 import { BusinessTimeUtil } from '../common/utils/business-time.util';
 
+import { SaveWeeklyReportDto } from './dto/save-weekly-report.dto';
+import { WeeklyReportSubmission } from './entities/weekly-report-submission.entity';
+
 @Injectable()
 export class BehaviorService implements OnModuleInit {
   constructor(
@@ -75,12 +78,18 @@ export class BehaviorService implements OnModuleInit {
     private readonly weeklyJournalLogsRepository: Repository<WeeklyJournalLog>,
     @InjectRepository(SystemConfig)
     private readonly systemConfigsRepository: Repository<SystemConfig>,
+    @InjectRepository(WeeklyReportSubmission)
+    private readonly weeklyReportSubmissionsRepository: Repository<WeeklyReportSubmission>,
   ) {}
 
   async onModuleInit() {
     const config = await this.systemConfigsRepository.findOne({ where: { key: 'CUTOFF_HOUR' } });
     if (config && !isNaN(Number(config.value))) {
       BusinessTimeUtil.CUTOFF_HOUR = Number(config.value);
+    }
+    const disableConfig = await this.systemConfigsRepository.findOne({ where: { key: 'DISABLE_CROSS_TIME_MANAGER' } });
+    if (disableConfig) {
+      BusinessTimeUtil.DISABLE_CROSS_TIME_MANAGER = disableConfig.value === 'true';
     }
   }
 
@@ -440,7 +449,7 @@ export class BehaviorService implements OnModuleInit {
       throw new NotFoundException('Không tìm thấy nhân viên');
     }
     
-    validateActionTimeForDate(journal.reportDate, 'Duyệt và sửa nhật ký');
+    validateActionTimeForDate(journal.reportDate, 'Duyệt và sửa nhật ký', false, currentUser.role);
 
     if (currentUser.role === Role.MANAGER && employee.unitId !== currentUser.unitId) {
       throw new ForbiddenException('Bạn không có quyền xử lý nhân viên khác đơn vị');
@@ -806,6 +815,42 @@ export class BehaviorService implements OnModuleInit {
     return { hour: config ? Number(config.value) : 7 };
   }
 
+  async getSystemConfigs() {
+    const cutoffConfig = await this.systemConfigsRepository.findOne({ where: { key: 'CUTOFF_HOUR' } });
+    const disableConfig = await this.systemConfigsRepository.findOne({ where: { key: 'DISABLE_CROSS_TIME_MANAGER' } });
+    return {
+      cutoffHour: cutoffConfig ? Number(cutoffConfig.value) : 7,
+      disableCrossTimeManager: disableConfig ? disableConfig.value === 'true' : false
+    };
+  }
+
+  async updateSystemConfigs(payload: { cutoffHour?: number, disableCrossTimeManager?: boolean }) {
+    if (payload.cutoffHour !== undefined) {
+      if (isNaN(payload.cutoffHour) || payload.cutoffHour < 0 || payload.cutoffHour > 23) {
+        throw new BadRequestException('Giờ cắt ngày phải là số từ 0 đến 23');
+      }
+      let config = await this.systemConfigsRepository.findOne({ where: { key: 'CUTOFF_HOUR' } });
+      if (!config) {
+        config = this.systemConfigsRepository.create({ key: 'CUTOFF_HOUR' });
+      }
+      config.value = String(payload.cutoffHour);
+      await this.systemConfigsRepository.save(config);
+      BusinessTimeUtil.CUTOFF_HOUR = payload.cutoffHour;
+    }
+
+    if (payload.disableCrossTimeManager !== undefined) {
+      let config = await this.systemConfigsRepository.findOne({ where: { key: 'DISABLE_CROSS_TIME_MANAGER' } });
+      if (!config) {
+        config = this.systemConfigsRepository.create({ key: 'DISABLE_CROSS_TIME_MANAGER' });
+      }
+      config.value = payload.disableCrossTimeManager ? 'true' : 'false';
+      await this.systemConfigsRepository.save(config);
+      BusinessTimeUtil.DISABLE_CROSS_TIME_MANAGER = payload.disableCrossTimeManager;
+    }
+
+    return { message: 'Đã cập nhật cấu hình hệ thống' };
+  }
+
   async updateCutoffTime(hour: number) {
     if (hour < 0 || hour > 23) {
       throw new BadRequestException('Giờ cắt ngày phải từ 0 đến 23');
@@ -1056,48 +1101,76 @@ export class BehaviorService implements OnModuleInit {
           86400000,
       ) + 1;
 
-    const qb = this.behaviorChecklistLogsRepository
-      .createQueryBuilder('b')
-      .leftJoin(User, 'u', 'u.id = b.user_id')
-      .leftJoin('u.unit', 'un')
-      .select('b.userId', 'userId')
-      .addSelect('u.fullName', 'fullName')
-      .addSelect('SUM(b.customerMetCount)', 'totalCustomerMet')
-      .addSelect(
-        `ROUND(100.0 * SUM(CASE WHEN b.status = 'APPROVED' AND b.mgrEvalDeepQ = true THEN 1 ELSE 0 END) / :totalDays, 2)`,
-        'deepInquiryRate',
-      )
-      .addSelect(
-        `ROUND(100.0 * SUM(CASE WHEN b.status = 'APPROVED' AND b.mgrEvalFullCons = true THEN 1 ELSE 0 END) / :totalDays, 2)`,
-        'fullConsultationRate',
-      )
-      .addSelect(
-        `ROUND(100.0 * SUM(CASE WHEN b.status = 'APPROVED' AND b.mgrEvalFollow = true THEN 1 ELSE 0 END) / :totalDays, 2)`,
-        'followedThroughRate',
-      )
-      .addSelect('MAX(b.managerFeedback)', 'managerFeedback')
-      .where('b.logDate BETWEEN :startDate AND :endDate', {
-        startDate: week.startDate,
-        endDate: week.endDate,
-      })
-      .andWhere('(un.excludeFromStatistics IS NULL OR un.excludeFromStatistics = false)')
-      .setParameter('totalDays', totalDays);
+    // Fetch all employees in manager's unit
+    const qb = this.usersRepository.createQueryBuilder('u')
+      .leftJoinAndSelect('u.unit', 'un')
+      .where('u.role = :role', { role: Role.EMPLOYEE })
+      .andWhere('(un.excludeFromStatistics IS NULL OR un.excludeFromStatistics = false)');
 
     if (currentUser.role === Role.MANAGER) {
       qb.andWhere('u.unitId = :unitId', { unitId: currentUser.unitId });
     }
 
-    const items = await qb
-      .groupBy('b.userId')
-      .addGroupBy('u.fullName')
-      .orderBy('u.fullName', 'ASC')
-      .getRawMany();
+    const users = await qb.orderBy('u.fullName', 'ASC').getMany();
+
+    // Fetch submissions for this week
+    const submissions = await this.weeklyReportSubmissionsRepository.find({
+      where: { weekId: week.id }
+    });
+
+    const items = users.map(u => {
+      const sub = submissions.find(s => s.userId === u.id);
+      return {
+        userId: u.id,
+        fullName: u.fullName,
+        totalCustomerMet: sub ? Number(sub.customerMetCount) : 0,
+        deepInquiryRate: sub ? Number(sub.deepInquiryRate) : 0,
+        fullConsultationRate: sub ? Number(sub.fullConsultationRate) : 0,
+        followedThroughRate: sub ? Number(sub.followedThroughRate) : 0,
+        managerFeedback: sub ? sub.managerFeedback : ''
+      };
+    });
 
     return {
       week,
       totalDays,
       items,
     };
+  }
+
+  async saveWeeklySummary(user: any, dto: SaveWeeklyReportDto) {
+    if (user.role !== Role.MANAGER && user.role !== Role.ADMIN) {
+      throw new ForbiddenException('Chỉ quản lý mới được phép lưu báo cáo tuần');
+    }
+    const week = await this.weeklyConfigsRepository.findOne(dto.weekId);
+    if (!week) {
+      throw new NotFoundException('Không tìm thấy tuần');
+    }
+    const targetUser = await this.usersRepository.findOne({ where: { id: dto.userId } });
+    if (!targetUser) {
+      throw new NotFoundException('Không tìm thấy nhân viên');
+    }
+
+    let submission = await this.weeklyReportSubmissionsRepository.findOne({
+      where: { weekId: dto.weekId, userId: dto.userId }
+    });
+
+    if (!submission) {
+      submission = this.weeklyReportSubmissionsRepository.create({
+        weekId: dto.weekId,
+        userId: dto.userId,
+        managerId: user.id
+      });
+    }
+
+    submission.managerId = user.id;
+    if (dto.customerMetCount !== undefined) submission.customerMetCount = dto.customerMetCount;
+    if (dto.deepInquiryRate !== undefined) submission.deepInquiryRate = dto.deepInquiryRate;
+    if (dto.fullConsultationRate !== undefined) submission.fullConsultationRate = dto.fullConsultationRate;
+    if (dto.followedThroughRate !== undefined) submission.followedThroughRate = dto.followedThroughRate;
+    if (dto.managerFeedback !== undefined) submission.managerFeedback = dto.managerFeedback;
+
+    return this.weeklyReportSubmissionsRepository.save(submission);
   }
 
   async getWeeklyConfigs() {

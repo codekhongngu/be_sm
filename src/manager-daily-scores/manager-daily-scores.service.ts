@@ -387,7 +387,7 @@ export class ManagerDailyScoresService {
       throw new BadRequestException('scoreDate không hợp lệ');
     }
 
-    validateActionTimeForDate(normalizedDate, 'Chấm điểm nhân viên');
+    validateActionTimeForDate(normalizedDate, 'Chấm điểm nhân viên', false, currentUser.role);
 
     const activeCriteria = await this.getActiveCriteria();
     if (!activeCriteria.length) {

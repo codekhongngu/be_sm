@@ -207,7 +207,7 @@ export class EvaluationsService {
       throw new ForbiddenException('Chỉ quản lý/admin được cập nhật đánh giá');
     }
     const { journal, manager } = await this.resolveManagerAndJournal(journalId, user);
-    validateActionTimeForDate(journal.reportDate || journal.createdAt, 'Đánh giá/chấm điểm');
+    validateActionTimeForDate(journal.reportDate || journal.createdAt, 'Đánh giá/chấm điểm', false, user.role);
     let evaluation = await this.evaluationsRepository.findOne({ journalId });
     if (!evaluation) {
       const required = [
@@ -307,7 +307,7 @@ export class EvaluationsService {
       throw new ForbiddenException('Chỉ quản lý/admin được cập nhật đánh giá');
     }
     const { journal, manager } = await this.resolveManagerAndJournal(journalId, user);
-    validateActionTimeForDate(journal.reportDate || journal.createdAt, 'Đánh giá/chấm điểm');
+    validateActionTimeForDate(journal.reportDate || journal.createdAt, 'Đánh giá/chấm điểm', false, user.role);
     let evaluation = await this.evaluationsRepository.findOne({ journalId });
     if (!evaluation) {
       evaluation = this.evaluationsRepository.create({
@@ -364,7 +364,7 @@ export class EvaluationsService {
       throw new ForbiddenException('Chỉ quản lý/admin được cập nhật đánh giá');
     }
     const { journal, manager } = await this.resolveManagerAndJournal(journalId, user);
-    validateActionTimeForDate(journal.reportDate || journal.createdAt, 'Đánh giá/chấm điểm');
+    validateActionTimeForDate(journal.reportDate || journal.createdAt, 'Đánh giá/chấm điểm', false, user.role);
     let evaluation = await this.evaluationsRepository.findOne({ journalId });
     if (!evaluation) {
       const required = [

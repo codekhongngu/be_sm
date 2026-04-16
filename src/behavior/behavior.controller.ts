@@ -22,6 +22,7 @@ import { ReviewDailyFormsDto } from './dto/review-daily-forms.dto';
 import { SubmitWeeklyJournalDto } from './dto/submit-weekly-journal.dto';
 import { UpsertJourneyPhaseConfigDto } from './dto/upsert-journey-phase-config.dto';
 import { UpdateWeeklyConfigDto } from './dto/update-weekly-config.dto';
+import { SaveWeeklyReportDto } from './dto/save-weekly-report.dto';
 
 @Controller('api')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -94,6 +95,12 @@ export class BehaviorController {
   @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   getWeeklySummary(@Param('weekId') weekId: string, @Req() req: any) {
     return this.behaviorService.getWeeklySummary(weekId, req.user);
+  }
+
+  @Post('reports/summary/weekly')
+  @Roles(Role.MANAGER, Role.ADMIN)
+  saveWeeklySummary(@Body() dto: SaveWeeklyReportDto, @Req() req: any) {
+    return this.behaviorService.saveWeeklySummary(req.user, dto);
   }
 
   @Get('admin/weekly-configs')
@@ -172,6 +179,12 @@ export class BehaviorController {
   @Roles(Role.ADMIN)
   updateJourneyPhaseConfig(@Param('id') id: string, @Body() dto: UpsertJourneyPhaseConfigDto) {
     return this.behaviorService.upsertJourneyPhaseConfig(id, dto);
+  }
+
+  @Patch('admin/system-configs')
+  @Roles(Role.ADMIN)
+  updateSystemConfigs(@Body() payload: { cutoffHour?: number, disableCrossTimeManager?: boolean }) {
+    return this.behaviorService.updateSystemConfigs(payload);
   }
 
   @Patch('admin/system-configs/cutoff-time')

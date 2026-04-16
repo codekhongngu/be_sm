@@ -19,6 +19,11 @@ export class AppController {
     return this.appService.checkDatabase();
   }
 
+  @Get('api/system-configs')
+  getSystemConfigs() {
+    return this.behaviorService.getSystemConfigs();
+  }
+
   @Get('api/system-configs/cutoff-time')
   getCutoffTime() {
     return this.behaviorService.getCutoffTime();

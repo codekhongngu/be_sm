@@ -1,7 +1,22 @@
 import { BadRequestException } from '@nestjs/common';
 import { BusinessTimeUtil } from './business-time.util';
+import { Role } from '../enums/role.enum';
 
-export function validateActionTimeForDate(targetDateStr: string | Date, actionName: string = 'Thao tác', bypassWeekendLock: boolean = false) {
+export function validateActionTimeForDate(
+  targetDateStr: string | Date, 
+  actionName: string = 'Thao tác', 
+  bypassWeekendLock: boolean = false,
+  userRole?: string
+) {
+  // Bypass all time checks for Manager/Admin if config is enabled
+  if (
+    userRole && 
+    [Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER].includes(userRole as any) && 
+    BusinessTimeUtil.DISABLE_CROSS_TIME_MANAGER
+  ) {
+    return;
+  }
+
   const now = new Date();
   
   if (!bypassWeekendLock && BusinessTimeUtil.isWeekendLocked(now)) {
