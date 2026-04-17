@@ -1112,8 +1112,10 @@ export class BehaviorService implements OnModuleInit {
     };
   }
 
-  async getWeeklySummary(weekId: string, currentUser: any) {
-    const week = await this.weeklyConfigsRepository.findOne(weekId);
+  async getWeeklySummary(weekId: string, currentUser: any, unitId?: string) {
+    const week = await this.weeklyConfigsRepository.findOne({
+      where: { id: weekId },
+    });
     if (!week) {
       throw new NotFoundException('Không tìm thấy cấu hình tuần');
     }
@@ -1132,6 +1134,8 @@ export class BehaviorService implements OnModuleInit {
 
     if (currentUser.role === Role.MANAGER) {
       qb.andWhere('u.unitId = :unitId', { unitId: currentUser.unitId });
+    } else if (unitId) {
+      qb.andWhere('u.unitId = :unitId', { unitId });
     }
 
     const users = await qb.orderBy('u.fullName', 'ASC').getMany();
@@ -1146,6 +1150,7 @@ export class BehaviorService implements OnModuleInit {
       return {
         userId: u.id,
         fullName: u.fullName,
+        unitName: u.unit ? u.unit.name : '',
         totalCustomerMet: sub ? Number(sub.customerMetCount) : 0,
         deepInquiryRate: sub ? Number(sub.deepInquiryRate) : 0,
         fullConsultationRate: sub ? Number(sub.fullConsultationRate) : 0,

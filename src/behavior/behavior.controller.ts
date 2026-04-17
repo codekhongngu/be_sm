@@ -93,8 +93,12 @@ export class BehaviorController {
 
   @Get('reports/summary/weekly/:weekId')
   @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
-  getWeeklySummary(@Param('weekId') weekId: string, @Req() req: any) {
-    return this.behaviorService.getWeeklySummary(weekId, req.user);
+  getWeeklySummary(
+    @Param('weekId') weekId: string,
+    @Query('unitId') unitId: string,
+    @Req() req: any,
+  ) {
+    return this.behaviorService.getWeeklySummary(weekId, req.user, unitId);
   }
 
   @Post('reports/summary/weekly')
