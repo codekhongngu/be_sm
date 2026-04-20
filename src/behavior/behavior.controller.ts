@@ -150,9 +150,19 @@ export class BehaviorController {
   }
 
   @Get('manager/weekly-journals')
-  @Roles(Role.MANAGER, Role.ADMIN)
-  getManagerWeeklyJournals(@Req() req: any, @Query('weekId') weekId?: string, @Query('status') status?: string) {
-    return this.behaviorService.getManagerWeeklyJournals(req.user, weekId, status);
+  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  getManagerWeeklyJournals(
+    @Req() req: any,
+    @Query('weekId') weekId?: string,
+    @Query('status') status?: string,
+    @Query('unitId') unitId?: string,
+  ) {
+    return this.behaviorService.getManagerWeeklyJournals(
+      req.user,
+      weekId,
+      status,
+      unitId,
+    );
   }
 
   @Patch('manager/weekly-journals/review')

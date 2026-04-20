@@ -576,7 +576,7 @@ export class ManagerDailyScoresService {
     const qb = this.sheetsRepository
       .createQueryBuilder('sheet')
       .leftJoinAndSelect('sheet.employee', 'employee')
-      .leftJoinAndSelect('employee.unit', 'employeeUnit')
+      .leftJoinAndSelect('employee.unit', 'employeeunit')
       .leftJoinAndSelect('sheet.manager', 'manager')
       .leftJoinAndSelect('sheet.items', 'items')
       .leftJoinAndSelect('items.criterion', 'criterion');
@@ -585,11 +585,14 @@ export class ManagerDailyScoresService {
     const toDate = this.toDateKey(filters.toDate || '');
 
     if (fromDate) {
-      qb.andWhere('sheet.scoreDate >= :fromDate', { fromDate });
+      qb.andWhere('sheet.score_date >= :fromDate', { fromDate });
     }
     if (toDate) {
-      qb.andWhere('sheet.scoreDate <= :toDate', { toDate });
+      qb.andWhere('sheet.score_date <= :toDate', { toDate });
     }
+
+    // Không tính trong thống kê 2 ngày cuối tuần thứ 7 và chủ nhật
+    qb.andWhere('EXTRACT(ISODOW FROM sheet.score_date) NOT IN (6, 7)');
 
     if (filters.employeeId) {
       const employee = await this.getEmployeeByScope(currentUser, filters.employeeId);
@@ -601,11 +604,15 @@ export class ManagerDailyScoresService {
     }
 
     qb.andWhere('sheet.status = :status', { status: 'APPROVED' });
-    qb.andWhere('(employeeUnit.excludeFromStatistics IS NULL OR employeeUnit.excludeFromStatistics = false)');
+    qb.andWhere('(employeeunit."excludeFromStatistics" IS NULL OR employeeunit."excludeFromStatistics" = false)');
+
+    console.log("--- QUERY THỐNG KÊ TOÀN TỈNH ---");
+    console.log(qb.getQuery());
+    console.log(qb.getParameters());
 
     const sheets = await qb
-      .orderBy('sheet.scoreDate', 'DESC')
-      .addOrderBy('employee.fullName', 'ASC')
+      .orderBy('sheet.score_date', 'DESC')
+      .addOrderBy('employee."fullName"', 'ASC')
       .getMany();
 
     const sections = this.groupCriteria(criteria);
@@ -672,7 +679,7 @@ export class ManagerDailyScoresService {
     >();
 
     const allUnitsQb = this.unitsRepository.createQueryBuilder('unit')
-      .where('(unit.excludeFromStatistics IS NULL OR unit.excludeFromStatistics = false)');
+      .where('(unit."excludeFromStatistics" IS NULL OR unit."excludeFromStatistics" = false)');
     if (currentUser.role === Role.MANAGER) {
       allUnitsQb.andWhere('unit.id = :unitId', { unitId: currentUser.unitId });
     } else if (filters.unitId) {

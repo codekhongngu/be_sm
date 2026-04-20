@@ -1373,7 +1373,12 @@ export class BehaviorService implements OnModuleInit {
     return { message: 'Đã xóa tuần' };
   }
 
-  async getManagerWeeklyJournals(user: User, weekId?: string, status?: string) {
+  async getManagerWeeklyJournals(
+    user: User,
+    weekId?: string,
+    status?: string,
+    unitId?: string,
+  ) {
     const qb = this.weeklyJournalLogsRepository
       .createQueryBuilder('l')
       .leftJoinAndSelect('l.user', 'u')
@@ -1384,6 +1389,8 @@ export class BehaviorService implements OnModuleInit {
 
     if (user.role === Role.MANAGER) {
       qb.andWhere('u.unitId = :unitId', { unitId: user.unitId });
+    } else if (unitId) {
+      qb.andWhere('u.unitId = :unitId', { unitId });
     }
 
     if (weekId) {
