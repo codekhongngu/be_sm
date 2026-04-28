@@ -1,5 +1,6 @@
 import {
   Query,
+  Res,
   Body,
   Controller,
   Delete,
@@ -10,6 +11,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { Role } from 'src/common/enums/role.enum';
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
@@ -80,6 +82,26 @@ export class BehaviorController {
       unitId,
       keyword,
     });
+  }
+
+  @Get('manager/journals/approved/export-status')
+  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  async exportApprovedJournalsStatus(
+    @Req() req: any,
+    @Res() res: Response,
+    @Query('reportDate') reportDate: string,
+    @Query('unitId') unitId?: string,
+  ) {
+    const file = await this.behaviorService.exportApprovedJournalsStatusFile(req.user, {
+      reportDate,
+      unitId,
+    });
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
+    return res.send(file.buffer);
   }
 
   @Get('reports/journal-submissions')

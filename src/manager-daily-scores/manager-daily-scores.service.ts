@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { SystemConfig } from 'src/behavior/entities/system-config.entity';
 import { Role } from 'src/common/enums/role.enum';
 import { User } from 'src/users/entities/user.entity';
 import { Unit } from 'src/users/entities/unit.entity';
@@ -54,6 +55,8 @@ export class ManagerDailyScoresService {
     private readonly usersRepository: Repository<User>,
     @InjectRepository(Unit)
     private readonly unitsRepository: Repository<Unit>,
+    @InjectRepository(SystemConfig)
+    private readonly systemConfigsRepository: Repository<SystemConfig>,
   ) {}
 
   private toDateKey(value: string) {
@@ -782,5 +785,207 @@ export class ManagerDailyScoresService {
     const toDate = String(stats?.filters?.toDate || '').trim();
     const fileName = `thong-ke-cham-diem-${fromDate || 'all'}-${toDate || 'all'}.xlsx`;
     return { buffer, fileName };
+  }
+
+  async exportProvincialStatisticsFile(
+    scoreDate: string,
+    filters?: { unitId?: string },
+  ) {
+    const normalizedDate = this.toDateKey(scoreDate || '');
+    if (!normalizedDate) {
+      throw new BadRequestException('scoreDate không hợp lệ');
+    }
+
+    const cutoffConfig = await this.systemConfigsRepository.findOne({
+      where: { key: 'CUTOFF_HOUR_MANAGER' },
+    });
+    const cutoffHour = Number(cutoffConfig?.value ?? 7);
+    const appliedCutoffHour = Number.isFinite(cutoffHour) ? cutoffHour : 7;
+
+    const criteriaPairs: Array<{ itemCode: string; scoreAlias: string; noteAlias: string }> = [
+      {
+        itemCode: 'LEARNING_TRAINING_PARTICIPATION',
+        scoreAlias: 'learningTrainingParticipationScore',
+        noteAlias: 'learningTrainingParticipationNote',
+      },
+      {
+        itemCode: 'LEARNING_WORKBOOK_EXERCISE',
+        scoreAlias: 'learningWorkbookExerciseScore',
+        noteAlias: 'learningWorkbookExerciseNote',
+      },
+      {
+        itemCode: 'LEARNING_MULTIPLE_CHOICE',
+        scoreAlias: 'learningMultipleChoiceScore',
+        noteAlias: 'learningMultipleChoiceNote',
+      },
+      {
+        itemCode: 'LEARNING_STAGE_EXERCISE',
+        scoreAlias: 'learningStageExerciseScore',
+        noteAlias: 'learningStageExerciseNote',
+      },
+      {
+        itemCode: 'BEHAVIOR_SALES_PLAN',
+        scoreAlias: 'behaviorSalesPlanScore',
+        noteAlias: 'behaviorSalesPlanNote',
+      },
+      {
+        itemCode: 'BEHAVIOR_PREPARE_CONSULT',
+        scoreAlias: 'behaviorPrepareConsultScore',
+        noteAlias: 'behaviorPrepareConsultNote',
+      },
+      {
+        itemCode: 'BEHAVIOR_CUSTOMERS_CONTACTED',
+        scoreAlias: 'behaviorCustomersContactedScore',
+        noteAlias: 'behaviorCustomersContactedNote',
+      },
+      {
+        itemCode: 'BEHAVIOR_OLD_CUSTOMERS_CONSULTED',
+        scoreAlias: 'behaviorOldCustomersConsultedScore',
+        noteAlias: 'behaviorOldCustomersConsultedNote',
+      },
+      {
+        itemCode: 'BEHAVIOR_SUCCESSFUL_CARE_CALLS',
+        scoreAlias: 'behaviorSuccessfulCareCallsScore',
+        noteAlias: 'behaviorSuccessfulCareCallsNote',
+      },
+      {
+        itemCode: 'BEHAVIOR_DAILY_CHECKLIST',
+        scoreAlias: 'behaviorDailyChecklistScore',
+        noteAlias: 'behaviorDailyChecklistNote',
+      },
+      {
+        itemCode: 'BEHAVIOR_DIRECTOR_EVALUATION',
+        scoreAlias: 'behaviorDirectorEvaluationScore',
+        noteAlias: 'behaviorDirectorEvaluationNote',
+      },
+      {
+        itemCode: 'PERFORMANCE_RENEWAL_SERVICES',
+        scoreAlias: 'performanceRenewalServicesScore',
+        noteAlias: 'performanceRenewalServicesNote',
+      },
+      {
+        itemCode: 'PERFORMANCE_NEW_PTM_PACKAGES',
+        scoreAlias: 'performanceNewPtmPackagesScore',
+        noteAlias: 'performanceNewPtmPackagesNote',
+      },
+      {
+        itemCode: 'PERFORMANCE_CLOSE_RATE',
+        scoreAlias: 'performanceCloseRateScore',
+        noteAlias: 'performanceCloseRateNote',
+      },
+      {
+        itemCode: 'PERFORMANCE_REVENUE',
+        scoreAlias: 'performanceRevenueScore',
+        noteAlias: 'performanceRevenueNote',
+      },
+      {
+        itemCode: 'PERFORMANCE_RETURNING_REFERRED',
+        scoreAlias: 'performanceReturningReferredScore',
+        noteAlias: 'performanceReturningReferredNote',
+      },
+    ];
+
+    const qb = this.sheetsRepository
+      .createQueryBuilder('s')
+      .innerJoin('users', 'e', 's.employee_id = e.id')
+      .innerJoin('units', 'u', 's.unit_id = u.id')
+      .innerJoin('manager_daily_score_items', 'i', 'i.sheet_id = s.id')
+      .innerJoin('manager_daily_score_criteria', 'c', 'i.criteria_id = c.id')
+      .select('u.name', 'unitName')
+      .addSelect('e."fullName"', 'fullName')
+      .addSelect('s.score_date', 'scoreDate');
+
+    criteriaPairs.forEach((pair) => {
+      qb.addSelect(
+        `MAX(CASE WHEN c.item_code = :${pair.itemCode}_itemCode THEN CASE WHEN s.status = 'APPROVED' THEN i.score ELSE i.self_score END ELSE 0 END)`,
+        pair.scoreAlias,
+      ).addSelect(
+        `MAX(CASE WHEN c.item_code = :${pair.itemCode}_itemCode THEN i.employee_note ELSE NULL END)`,
+        pair.noteAlias,
+      );
+      qb.setParameter(`${pair.itemCode}_itemCode`, pair.itemCode);
+    });
+
+    qb.addSelect(
+      `SUM(CASE WHEN s.status = 'APPROVED' THEN i.score ELSE i.self_score END)`,
+      'totalScore',
+    )
+      .addSelect(
+        `CASE WHEN s.status = 'APPROVED' THEN 'Đã duyệt' ELSE 'Chưa duyệt' END`,
+        'approvalStatus',
+      )
+      .where('s.score_date = :scoreDate', { scoreDate: normalizedDate })
+      .andWhere(
+        `s.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh' >= (CAST(:scoreDate AS DATE) + make_interval(hours => CAST(:cutoffHour AS int)))`,
+        { cutoffHour: appliedCutoffHour },
+      )
+      .andWhere(
+        `s.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh' < (CAST(:scoreDate AS DATE) + INTERVAL '1 day' + make_interval(hours => CAST(:cutoffHour AS int)))`,
+        { cutoffHour: appliedCutoffHour },
+      )
+      .andWhere('(u."excludeFromStatistics" IS NULL OR u."excludeFromStatistics" = false)');
+
+    if (filters?.unitId) {
+      qb.andWhere('u.id = :unitId', { unitId: filters.unitId });
+    }
+
+    qb.groupBy('u.name')
+      .addGroupBy('e."fullName"')
+      .addGroupBy('s.score_date')
+      .addGroupBy('s.status')
+      .orderBy('u.name', 'ASC')
+      .addOrderBy('e."fullName"', 'ASC');
+
+    const rows = await qb.getRawMany();
+
+    const exportRows = rows.map((row) => ({
+      'Đơn vị': row.unitName || '',
+      'Họ và tên': row.fullName || '',
+      Ngày: row.scoreDate || '',
+      'Điểm - Tham gia đào tạo, giao ban': Number(row.learningTrainingParticipationScore || 0),
+      'Nội dung - Tham gia đào tạo, giao ban': row.learningTrainingParticipationNote || '',
+      'Điểm - Làm bài tập Sổ tay': Number(row.learningWorkbookExerciseScore || 0),
+      'Nội dung - Làm bài tập Sổ tay': row.learningWorkbookExerciseNote || '',
+      'Điểm - Làm bài tập trắc nghiệm': Number(row.learningMultipleChoiceScore || 0),
+      'Nội dung - Làm bài tập trắc nghiệm': row.learningMultipleChoiceNote || '',
+      'Điểm - Bài tập theo giai đoạn': Number(row.learningStageExerciseScore || 0),
+      'Nội dung - Bài tập theo giai đoạn': row.learningStageExerciseNote || '',
+      'Điểm - Lập kế hoạch bán hàng': Number(row.behaviorSalesPlanScore || 0),
+      'Nội dung - Lập kế hoạch bán hàng': row.behaviorSalesPlanNote || '',
+      'Điểm - Chuẩn bị câu hỏi tư vấn': Number(row.behaviorPrepareConsultScore || 0),
+      'Nội dung - Chuẩn bị câu hỏi tư vấn': row.behaviorPrepareConsultNote || '',
+      'Điểm - Số khách hàng tiếp cận': Number(row.behaviorCustomersContactedScore || 0),
+      'Nội dung - Số khách hàng tiếp cận': row.behaviorCustomersContactedNote || '',
+      'Điểm - Số khách cũ tư vấn': Number(row.behaviorOldCustomersConsultedScore || 0),
+      'Nội dung - Số khách cũ tư vấn': row.behaviorOldCustomersConsultedNote || '',
+      'Điểm - Số cuộc gọi CSKH thành công': Number(row.behaviorSuccessfulCareCallsScore || 0),
+      'Nội dung - Số cuộc gọi CSKH thành công': row.behaviorSuccessfulCareCallsNote || '',
+      'Điểm - Ghi nhật ký, checklist': Number(row.behaviorDailyChecklistScore || 0),
+      'Nội dung - Ghi nhật ký, checklist': row.behaviorDailyChecklistNote || '',
+      'Điểm - Giám đốc đánh giá': Number(row.behaviorDirectorEvaluationScore || 0),
+      'Nội dung - Giám đốc đánh giá': row.behaviorDirectorEvaluationNote || '',
+      'Điểm - Số DV mới/gia hạn': Number(row.performanceRenewalServicesScore || 0),
+      'Nội dung - Số DV mới/gia hạn': row.performanceRenewalServicesNote || '',
+      'Điểm - Số gói ca PTM mới': Number(row.performanceNewPtmPackagesScore || 0),
+      'Nội dung - Số gói ca PTM mới': row.performanceNewPtmPackagesNote || '',
+      'Điểm - Tỷ lệ chốt dịch vụ': Number(row.performanceCloseRateScore || 0),
+      'Nội dung - Tỷ lệ chốt dịch vụ': row.performanceCloseRateNote || '',
+      'Điểm - Doanh thu cá nhân': Number(row.performanceRevenueScore || 0),
+      'Nội dung - Doanh thu cá nhân': row.performanceRevenueNote || '',
+      'Điểm - Số KH giới thiệu': Number(row.performanceReturningReferredScore || 0),
+      'Nội dung - Số KH giới thiệu': row.performanceReturningReferredNote || '',
+      'Tổng cộng': Number(row.totalScore || 0),
+      'Trạng thái': row.approvalStatus || '',
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(exportRows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'ThongKeToanTinh');
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+    return {
+      buffer,
+      fileName: `bao-cao-thong-ke-toan-tinh-${normalizedDate}.xlsx`,
+    };
   }
 }

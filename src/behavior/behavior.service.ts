@@ -10,6 +10,7 @@ import { Role } from 'src/common/enums/role.enum';
 import { Journal } from 'src/journals/entities/journal.entity';
 import { User } from 'src/users/entities/user.entity';
 import { Repository } from 'typeorm';
+import * as XLSX from 'xlsx';
 import {
   BehaviorChecklistLog,
   BehaviorChecklistStatus,
@@ -998,6 +999,111 @@ export class BehaviorService implements OnModuleInit {
         .map((item) => item.trim())
         .filter(Boolean),
     }));
+  }
+
+  async exportApprovedJournalsStatusFile(
+    currentUser: any,
+    filters: { reportDate: string; unitId?: string },
+  ) {
+    const reportDate = String(filters?.reportDate || '').slice(0, 10);
+    if (!reportDate) {
+      throw new BadRequestException('Thiếu reportDate');
+    }
+
+    let query = `
+      WITH target_date AS (
+        SELECT
+          CAST($1 AS DATE) AS report_date,
+          (CAST($1 AS DATE) + INTERVAL '8 hour') AS start_time,
+          (CAST($1 AS DATE) + INTERVAL '1 day' + INTERVAL '8 hour') AS end_time
+      ),
+      form1_data AS (
+        SELECT j."userId" AS user_id
+        FROM journals j
+        CROSS JOIN target_date t
+        WHERE j."createdAt" AT TIME ZONE 'Asia/Ho_Chi_Minh' >= t.start_time
+          AND j."createdAt" AT TIME ZONE 'Asia/Ho_Chi_Minh' < t.end_time
+        GROUP BY j."userId"
+      ),
+      form3_data AS (
+        SELECT m.user_id
+        FROM mindset_logs m
+        CROSS JOIN target_date t
+        WHERE m.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh' >= t.start_time
+          AND m.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh' < t.end_time
+        GROUP BY m.user_id
+      ),
+      form8_data AS (
+        SELECT b.user_id
+        FROM belief_transformation_logs b
+        CROSS JOIN target_date t
+        WHERE b.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh' >= t.start_time
+          AND b.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh' < t.end_time
+        GROUP BY b.user_id
+      ),
+      reviews AS (
+        SELECT
+          user_id,
+          MAX(CASE WHEN form_type IN ('FORM_1_AWARENESS', 'FORM_1_STANDARDS') AND status = 'APPROVED' THEN 1 ELSE 0 END) as form1_approved,
+          MAX(CASE WHEN form_type = 'FORM_3' AND status = 'APPROVED' THEN 1 ELSE 0 END) as form3_approved,
+          MAX(CASE WHEN form_type = 'FORM_8' AND status = 'APPROVED' THEN 1 ELSE 0 END) as form8_approved
+        FROM daily_form_reviews
+        CROSS JOIN target_date t
+        WHERE log_date = t.report_date
+        GROUP BY user_id
+      )
+      SELECT
+        u.name AS "Tên đơn vị",
+        e."fullName" AS "Tên nhân viên",
+        TO_CHAR((SELECT report_date FROM target_date), 'DD/MM/YYYY') AS "Ngày thực hiện",
+        CASE
+          WHEN r.form1_approved = 1 THEN 'Đã duyệt'
+          WHEN f1.user_id IS NOT NULL THEN 'Đã nhập'
+          ELSE 'Chưa nhập'
+        END AS "Mẫu 01",
+        CASE
+          WHEN r.form3_approved = 1 THEN 'Đã duyệt'
+          WHEN f3.user_id IS NOT NULL THEN 'Đã nhập'
+          ELSE 'Chưa nhập'
+        END AS "Mẫu 03",
+        CASE
+          WHEN r.form8_approved = 1 THEN 'Đã duyệt'
+          WHEN f8.user_id IS NOT NULL THEN 'Đã nhập'
+          ELSE 'Chưa nhập'
+        END AS "Mẫu 08"
+      FROM users e
+      JOIN units u ON e."unitId" = u.id
+      LEFT JOIN form1_data f1 ON e.id = f1.user_id
+      LEFT JOIN form3_data f3 ON e.id = f3.user_id
+      LEFT JOIN form8_data f8 ON e.id = f8.user_id
+      LEFT JOIN reviews r ON e.id = r.user_id::uuid
+      WHERE e.role = 'EMPLOYEE'
+        AND (u."excludeFromStatistics" IS NULL OR u."excludeFromStatistics" = false)
+    `;
+
+    const params: any[] = [reportDate];
+    let paramIndex = 2;
+
+    if (currentUser.role === Role.MANAGER) {
+      query += ` AND e."unitId" = $${paramIndex++}`;
+      params.push(currentUser.unitId);
+    } else if (filters?.unitId) {
+      query += ` AND e."unitId" = $${paramIndex++}`;
+      params.push(filters.unitId);
+    }
+
+    query += ` ORDER BY u.name ASC, e."fullName" ASC`;
+
+    const rows = await this.journalsRepository.query(query, params);
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'MauDaDuyet');
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+    return {
+      buffer,
+      fileName: `bao-cao-mau-da-duyet-${reportDate}.xlsx`,
+    };
   }
 
   async evaluateBehaviorLog(id: string, dto: EvaluateBehaviorLogDto, currentUser: any) {

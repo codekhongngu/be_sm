@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { SystemConfig } from 'src/behavior/entities/system-config.entity';
 import { User } from 'src/users/entities/user.entity';
 import { Unit } from 'src/users/entities/unit.entity';
 import { ManagerDailyScoreCriterion } from './entities/manager-daily-score-criterion.entity';
@@ -16,6 +17,7 @@ import { ManagerDailyScoresService } from './manager-daily-scores.service';
       ManagerDailyScoreCriterion,
       ManagerDailyScoreSheet,
       ManagerDailyScoreItem,
+      SystemConfig,
     ]),
   ],
   controllers: [ManagerDailyScoresController],

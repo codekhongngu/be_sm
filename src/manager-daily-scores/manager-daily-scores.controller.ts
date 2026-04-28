@@ -115,6 +115,24 @@ export class ManagerDailyScoresController {
     return res.send(file.buffer);
   }
 
+  @Get('provincial-statistics-export')
+  @Roles(Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  async exportProvincialStatistics(
+    @Res() res: Response,
+    @Query('scoreDate') scoreDate: string,
+    @Query('unitId') unitId?: string,
+  ) {
+    const file = await this.managerDailyScoresService.exportProvincialStatisticsFile(scoreDate, {
+      unitId,
+    });
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
+    return res.send(file.buffer);
+  }
+
   @Get('statistics/:scoreDate')
   @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   getStatisticsByDate(@Req() req: any, @Param('scoreDate') scoreDate: string) {
