@@ -34,6 +34,9 @@ export class ManagerDailyScoreCriterion {
   @Column({ name: 'content_name', type: 'text' })
   contentName: string;
 
+  @Column({ name: 'employee_input_type', length: 20, default: 'text' })
+  employeeInputType: 'text' | 'number';
+
   @Column({ name: 'max_score', type: 'numeric', precision: 10, scale: 2, default: 0 })
   maxScore: string;
 

@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsBoolean,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -45,6 +46,11 @@ export class UpdateManagerDailyScoreCriterionDto {
   @IsString()
   @MaxLength(4000)
   contentName?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['text', 'number'])
+  employeeInputType?: 'text' | 'number';
 
   @IsOptional()
   @Type(() => Number)

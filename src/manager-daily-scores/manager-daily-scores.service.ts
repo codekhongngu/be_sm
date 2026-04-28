@@ -95,6 +95,7 @@ export class ManagerDailyScoresService {
       itemSortOrder: item.itemSortOrder,
       sttLabel: item.sttLabel,
       contentName: item.contentName,
+      employeeInputType: item.employeeInputType || 'text',
       maxScore: this.normalizeNumber(item.maxScore),
       isActive: item.isActive,
     };
@@ -113,6 +114,7 @@ export class ManagerDailyScoresService {
           itemCode: string;
           sttLabel: string;
           contentName: string;
+          employeeInputType: 'text' | 'number';
           maxScore: number;
           sectionCode: string;
         }>;
@@ -134,6 +136,7 @@ export class ManagerDailyScoresService {
         itemCode: criterion.itemCode,
         sttLabel: criterion.sttLabel,
         contentName: criterion.contentName,
+        employeeInputType: criterion.employeeInputType || 'text',
         maxScore: itemMaxScore,
         sectionCode: criterion.sectionCode,
       });
@@ -174,6 +177,7 @@ export class ManagerDailyScoresService {
         itemSortOrder: item[4],
         sttLabel: item[5],
         contentName: item[6],
+        employeeInputType: 'text',
         maxScore: String(item[7]),
         isActive: true,
       }),
@@ -230,6 +234,7 @@ export class ManagerDailyScoresService {
       itemSortOrder: Number(dto.itemSortOrder || 0),
       sttLabel: String(dto.sttLabel || '').trim(),
       contentName: String(dto.contentName || '').trim(),
+      employeeInputType: dto.employeeInputType === 'number' ? 'number' : 'text',
       maxScore: String(Number(dto.maxScore || 0)),
       isActive: dto.isActive !== false,
     });
@@ -270,6 +275,9 @@ export class ManagerDailyScoresService {
     }
     if (dto.contentName !== undefined) {
       criterion.contentName = String(dto.contentName || '').trim();
+    }
+    if (dto.employeeInputType !== undefined) {
+      criterion.employeeInputType = dto.employeeInputType === 'number' ? 'number' : 'text';
     }
     if (dto.maxScore !== undefined) {
       criterion.maxScore = String(Number(dto.maxScore || 0));
@@ -499,7 +507,20 @@ export class ManagerDailyScoresService {
       let selfScore = Number(existing?.selfScore || 0);
 
       if (currentUser.role === Role.EMPLOYEE) {
-        employeeNote = String(item.employeeNote || '').trim();
+        const criterion = criteriaMap.get(item.criteriaId);
+        const employeeInputType = criterion?.employeeInputType || 'text';
+        const rawEmployeeInput = String(item.employeeNote || '').trim();
+        if (employeeInputType === 'number' && rawEmployeeInput) {
+          const normalizedNumber = Number(rawEmployeeInput);
+          if (Number.isNaN(normalizedNumber)) {
+            throw new BadRequestException(
+              `Nội dung tiêu chí ${criterion?.contentName || item.criteriaId} phải là số`,
+            );
+          }
+          employeeNote = String(normalizedNumber);
+        } else {
+          employeeNote = rawEmployeeInput;
+        }
         selfScore = Number(item.selfScore || 0);
       } else {
         requirementNote = String(item.requirementNote || '').trim();

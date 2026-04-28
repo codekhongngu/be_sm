@@ -1,8 +1,10 @@
 import { Type } from 'class-transformer';
 import {
   IsBoolean,
+  IsIn,
   IsNotEmpty,
   IsNumber,
+  IsOptional,
   IsString,
   IsUUID,
   MaxLength,
@@ -44,6 +46,11 @@ export class CreateManagerDailyScoreCriterionDto {
   @IsNotEmpty()
   @MaxLength(4000)
   contentName: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['text', 'number'])
+  employeeInputType?: 'text' | 'number';
 
   @Type(() => Number)
   @IsNumber()
