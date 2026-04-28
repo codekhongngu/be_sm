@@ -1538,6 +1538,140 @@ export class BehaviorService implements OnModuleInit {
     return Array.from(map.values());
   }
 
+  async exportManagerWeeklyJournalsFile(
+    user: User,
+    weekId?: string,
+    status?: string,
+    unitId?: string,
+  ) {
+    const rows = await this.getManagerWeeklyJournals(user, weekId, status, unitId);
+    const toText = (value: any) => String(value || '').trim();
+    const resolveStatus = (value: string) =>
+      value === 'APPROVED' ? 'Đã duyệt' : value === 'REJECTED' ? 'Bị trả lại' : 'Chờ duyệt';
+    const mergeEntries = (entries: any[], key: string) =>
+      (Array.isArray(entries) ? entries : [])
+        .map((item) => toText(item?.[key]))
+        .filter(Boolean)
+        .join(' | ');
+
+    const exportRows = rows.map((item) => {
+      const form10 = (item.forms || []).find((f) => f.formType === 'FORM_10');
+      const form11 = (item.forms || []).find((f) => f.formType === 'FORM_11');
+      return {
+        'Tuần': toText(item.week?.weekName),
+        'Từ ngày': toText(item.week?.startDate),
+        'Đến ngày': toText(item.week?.endDate),
+        'Đơn vị': toText(item.user?.unit?.name),
+        'Nhân viên': toText(item.user?.fullName),
+        'Tài khoản': toText(item.user?.username),
+        'Trạng thái': resolveStatus(item.status),
+        'Nhận xét quản lý': toText(item.managerComment),
+        'Mẫu 10 - Hành động thu nhập cao': mergeEntries(form10?.entries, 'highIncomeAction'),
+        'Mẫu 10 - Kết quả': mergeEntries(form10?.entries, 'result'),
+        'Mẫu 10 - Cảm xúc': mergeEntries(form10?.entries, 'feeling'),
+        'Mẫu 11 - Lĩnh vực tạo giá trị tốt nhất': mergeEntries(form11?.entries, 'bestValueArea'),
+        'Mẫu 11 - Hành vi gia tăng thu nhập': mergeEntries(form11?.entries, 'incomeIncreaseBehavior'),
+        'Mẫu 11 - Dấu hiệu tụt chuẩn': mergeEntries(form11?.entries, 'backslideSign'),
+        'Mẫu 11 - Kế hoạch tuần tới': mergeEntries(form11?.entries, 'nextWeekPlan'),
+      };
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(exportRows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'WeeklyReview');
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    const selectedWeek = rows[0]?.week?.weekName || 'all';
+    const normalizedWeek = selectedWeek.replace(/[^\w-]+/g, '-').toLowerCase();
+
+    return {
+      buffer,
+      fileName: `bao-cao-duyet-nhat-ky-tuan-${normalizedWeek}.xlsx`,
+    };
+  }
+
+  async exportManagerWeeklyJournalsStatusFile(
+    user: User,
+    filters: { weekId: string; unitId?: string },
+  ) {
+    const weekId = String(filters?.weekId || '').trim();
+    if (!weekId) {
+      throw new BadRequestException('Thiếu weekId');
+    }
+
+    const week = await this.weeklyConfigsRepository.findOne(weekId);
+    if (!week) {
+      throw new NotFoundException('Không tìm thấy tuần đã chọn');
+    }
+
+    let query = `
+      WITH form10_data AS (
+        SELECT
+          user_id,
+          MAX(CASE WHEN status = 'APPROVED' THEN 2 ELSE 1 END) AS form10_state
+        FROM weekly_journal_logs
+        WHERE week_id = $1 AND form_type = 'FORM_10'
+        GROUP BY user_id
+      ),
+      form11_data AS (
+        SELECT
+          user_id,
+          MAX(CASE WHEN status = 'APPROVED' THEN 2 ELSE 1 END) AS form11_state
+        FROM weekly_journal_logs
+        WHERE week_id = $1 AND form_type = 'FORM_11'
+        GROUP BY user_id
+      )
+      SELECT
+        un.name AS "Tên đơn vị",
+        u."fullName" AS "Tên nhân viên",
+        $2 AS "Tuần",
+        $3 AS "Từ ngày",
+        $4 AS "Đến ngày",
+        CASE
+          WHEN f10.form10_state = 2 THEN 'Đã duyệt'
+          WHEN f10.form10_state = 1 THEN 'Đã nhập'
+          ELSE 'Chưa nhập'
+        END AS "Mẫu 10",
+        CASE
+          WHEN f11.form11_state = 2 THEN 'Đã duyệt'
+          WHEN f11.form11_state = 1 THEN 'Đã nhập'
+          ELSE 'Chưa nhập'
+        END AS "Mẫu 11"
+      FROM users u
+      INNER JOIN units un ON un.id = u."unitId"
+      LEFT JOIN form10_data f10 ON u.id = f10.user_id
+      LEFT JOIN form11_data f11 ON u.id = f11.user_id
+      WHERE u.role = 'EMPLOYEE'
+        AND (un."excludeFromStatistics" IS NULL OR un."excludeFromStatistics" = false)
+    `;
+
+    const params: any[] = [weekId, week.weekName, week.startDate, week.endDate];
+    let paramIndex = 5;
+
+    if (user.role === Role.MANAGER) {
+      query += ` AND u."unitId" = $${paramIndex++}`;
+      params.push(user.unitId);
+    } else if (filters.unitId) {
+      query += ` AND u."unitId" = $${paramIndex++}`;
+      params.push(filters.unitId);
+    }
+
+    query += ` ORDER BY un.name ASC, u."fullName" ASC`;
+
+    const rows = await this.journalsRepository.query(query, params);
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'TrangThaiMau1011');
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    const normalizedWeek = String(week.weekName || 'all')
+      .replace(/[^\w-]+/g, '-')
+      .toLowerCase();
+
+    return {
+      buffer,
+      fileName: `bao-cao-trang-thai-mau-10-11-${normalizedWeek}.xlsx`,
+    };
+  }
+
   async reviewWeeklyJournal(manager: User, dto: any) {
     const { userId, weekId, status, managerComment } = dto;
     if (!userId || !weekId || !status) {

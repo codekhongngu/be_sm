@@ -154,7 +154,7 @@ export class BehaviorController {
   }
 
   @Get('weekly-configs')
-  @Roles(Role.EMPLOYEE, Role.MANAGER, Role.ADMIN)
+  @Roles(Role.EMPLOYEE, Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   getWeeklyConfigsForUser() {
     return this.behaviorService.getWeeklyConfigsForUser();
   }
@@ -185,6 +185,49 @@ export class BehaviorController {
       status,
       unitId,
     );
+  }
+
+  @Get('manager/weekly-journals/export')
+  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  async exportManagerWeeklyJournals(
+    @Req() req: any,
+    @Res() res: Response,
+    @Query('weekId') weekId?: string,
+    @Query('status') status?: string,
+    @Query('unitId') unitId?: string,
+  ) {
+    const file = await this.behaviorService.exportManagerWeeklyJournalsFile(
+      req.user,
+      weekId,
+      status,
+      unitId,
+    );
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
+    return res.send(file.buffer);
+  }
+
+  @Get('manager/weekly-journals/export-status')
+  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  async exportManagerWeeklyJournalsStatus(
+    @Req() req: any,
+    @Res() res: Response,
+    @Query('weekId') weekId: string,
+    @Query('unitId') unitId?: string,
+  ) {
+    const file = await this.behaviorService.exportManagerWeeklyJournalsStatusFile(req.user, {
+      weekId,
+      unitId,
+    });
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
+    return res.send(file.buffer);
   }
 
   @Patch('manager/weekly-journals/review')
