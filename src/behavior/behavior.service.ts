@@ -44,6 +44,22 @@ import { WeeklyReportSubmission } from './entities/weekly-report-submission.enti
 
 @Injectable()
 export class BehaviorService implements OnModuleInit {
+  private parseLockedEntryDates(value?: string | null): string[] {
+    return String(value || '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter((item) => /^\d{4}-\d{2}-\d{2}$/.test(item));
+  }
+
+  private normalizeLockedEntryDates(values?: string[]): string[] {
+    const set = new Set(
+      (Array.isArray(values) ? values : [])
+        .map((item) => String(item || '').trim())
+        .filter((item) => /^\d{4}-\d{2}-\d{2}$/.test(item)),
+    );
+    return [...set].sort();
+  }
+
   constructor(
     @InjectRepository(Journal)
     private readonly journalsRepository: Repository<Journal>,
@@ -96,6 +112,10 @@ export class BehaviorService implements OnModuleInit {
     if (disableConfig) {
       BusinessTimeUtil.DISABLE_CROSS_TIME_MANAGER = disableConfig.value === 'true';
     }
+    const lockedDatesConfig = await this.systemConfigsRepository.findOne({ where: { key: 'LOCKED_ENTRY_DATES' } });
+    BusinessTimeUtil.LOCKED_ENTRY_DATES = new Set(
+      this.parseLockedEntryDates(lockedDatesConfig?.value),
+    );
   }
 
   async submitLog(user: any, dto: SubmitLogDto) {
@@ -828,14 +848,16 @@ export class BehaviorService implements OnModuleInit {
     const cutoffConfig = await this.systemConfigsRepository.findOne({ where: { key: 'CUTOFF_HOUR' } });
     const cutoffManagerConfig = await this.systemConfigsRepository.findOne({ where: { key: 'CUTOFF_HOUR_MANAGER' } });
     const disableConfig = await this.systemConfigsRepository.findOne({ where: { key: 'DISABLE_CROSS_TIME_MANAGER' } });
+    const lockedDatesConfig = await this.systemConfigsRepository.findOne({ where: { key: 'LOCKED_ENTRY_DATES' } });
     return {
       cutoffHour: cutoffConfig ? Number(cutoffConfig.value) : 7,
       cutoffHourManager: cutoffManagerConfig ? Number(cutoffManagerConfig.value) : 7,
-      disableCrossTimeManager: disableConfig ? disableConfig.value === 'true' : false
+      disableCrossTimeManager: disableConfig ? disableConfig.value === 'true' : false,
+      lockedEntryDates: this.parseLockedEntryDates(lockedDatesConfig?.value),
     };
   }
 
-  async updateSystemConfigs(payload: { cutoffHour?: number, cutoffHourManager?: number, disableCrossTimeManager?: boolean }) {
+  async updateSystemConfigs(payload: { cutoffHour?: number, cutoffHourManager?: number, disableCrossTimeManager?: boolean, lockedEntryDates?: string[] }) {
     if (payload.cutoffHour !== undefined) {
       if (isNaN(payload.cutoffHour) || payload.cutoffHour < 0 || payload.cutoffHour > 23) {
         throw new BadRequestException('Giờ cắt ngày cho nhân viên phải là số từ 0 đến 23');
@@ -870,6 +892,17 @@ export class BehaviorService implements OnModuleInit {
       config.value = payload.disableCrossTimeManager ? 'true' : 'false';
       await this.systemConfigsRepository.save(config);
       BusinessTimeUtil.DISABLE_CROSS_TIME_MANAGER = payload.disableCrossTimeManager;
+    }
+
+    if (payload.lockedEntryDates !== undefined) {
+      const normalizedDates = this.normalizeLockedEntryDates(payload.lockedEntryDates);
+      let config = await this.systemConfigsRepository.findOne({ where: { key: 'LOCKED_ENTRY_DATES' } });
+      if (!config) {
+        config = this.systemConfigsRepository.create({ key: 'LOCKED_ENTRY_DATES' });
+      }
+      config.value = normalizedDates.join(',');
+      await this.systemConfigsRepository.save(config);
+      BusinessTimeUtil.LOCKED_ENTRY_DATES = new Set(normalizedDates);
     }
 
     return { message: 'Đã cập nhật cấu hình hệ thống' };

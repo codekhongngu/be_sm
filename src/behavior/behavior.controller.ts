@@ -262,7 +262,7 @@ export class BehaviorController {
 
   @Patch('admin/system-configs')
   @Roles(Role.ADMIN)
-  updateSystemConfigs(@Body() payload: { cutoffHour?: number, cutoffHourManager?: number, disableCrossTimeManager?: boolean }) {
+  updateSystemConfigs(@Body() payload: { cutoffHour?: number, cutoffHourManager?: number, disableCrossTimeManager?: boolean, lockedEntryDates?: string[] }) {
     return this.behaviorService.updateSystemConfigs(payload);
   }
 

@@ -22,6 +22,13 @@ export function validateActionTimeForDate(
   // Xác định giờ cắt ngày tùy theo role
   const isManagerRole = userRole && [Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER].includes(userRole as any);
   const appliedCutoff = isManagerRole ? BusinessTimeUtil.CUTOFF_HOUR_MANAGER : BusinessTimeUtil.CUTOFF_HOUR;
+  const targetBusinessDate = BusinessTimeUtil.getEffectiveBusinessDate(targetDateStr, appliedCutoff).format('YYYY-MM-DD');
+
+  if (BusinessTimeUtil.LOCKED_ENTRY_DATES.has(targetBusinessDate)) {
+    throw new BadRequestException(
+      `${actionName} đã bị khóa theo cấu hình hệ thống cho ngày ${targetBusinessDate}.`
+    );
+  }
 
   if (!bypassWeekendLock && BusinessTimeUtil.isWeekendLocked(now)) {
     throw new BadRequestException(
@@ -30,7 +37,6 @@ export function validateActionTimeForDate(
   }
 
   const effectiveBusinessDate = BusinessTimeUtil.getEffectiveBusinessDate(now, appliedCutoff).format('YYYY-MM-DD');
-  const targetBusinessDate = BusinessTimeUtil.getEffectiveBusinessDate(targetDateStr, appliedCutoff).format('YYYY-MM-DD');
 
   if (effectiveBusinessDate !== targetBusinessDate) {
     throw new BadRequestException(

@@ -4,6 +4,7 @@ export class BusinessTimeUtil {
   static CUTOFF_HOUR = 7;
   static CUTOFF_HOUR_MANAGER = 7;
   static DISABLE_CROSS_TIME_MANAGER = false;
+  static LOCKED_ENTRY_DATES = new Set<string>();
 
   /**
    * Tính toán Ngày Nghiệp Vụ dựa trên mốc Cut-off 07:00 AM (Vietnam Time)

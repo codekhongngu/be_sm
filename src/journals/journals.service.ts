@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Role } from 'src/common/enums/role.enum';
 import { TelegramService } from 'src/telegram/telegram.service';
 import { UsersService } from 'src/users/users.service';
+import { validateActionTimeForDate } from '../common/utils/time-validator.util';
 import { Repository } from 'typeorm';
 import { CreateJournalDto } from './dto/create-journal.dto';
 import { SubmitAwarenessDto } from './dto/submit-awareness.dto';
@@ -128,6 +129,7 @@ export class JournalsService {
       throw new ForbiddenException('Chỉ nhân viên được nộp nhật ký');
     }
     const reportDate = this.normalizeReportDate(dto.reportDate);
+    validateActionTimeForDate(reportDate, 'Nhập nhật ký hằng ngày', false, user.role);
 
     const journal = await this.getOrCreateDailyJournal(user, reportDate);
     if (journal.awarenessShared) {
@@ -171,6 +173,7 @@ export class JournalsService {
       throw new ForbiddenException('Chỉ nhân viên được nộp nhật ký');
     }
     const reportDate = this.normalizeReportDate(dto.reportDate);
+    validateActionTimeForDate(reportDate, 'Nhập nhật ký hằng ngày', false, user.role);
 
     const journal = await this.getOrCreateDailyJournal(user, reportDate);
     if (journal.standardsShared) {
