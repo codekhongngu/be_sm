@@ -104,6 +104,30 @@ export class BehaviorController {
     return res.send(file.buffer);
   }
 
+  @Get('manager/journals/approved/export-forms-2-3-4-5')
+  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  async exportApprovedJournalsForms2345(
+    @Req() req: any,
+    @Res() res: Response,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+    @Query('unitId') unitId?: string,
+    @Query('keyword') keyword?: string,
+  ) {
+    const file = await this.behaviorService.exportApprovedJournalsForms2345File(req.user, {
+      fromDate,
+      toDate,
+      unitId,
+      keyword,
+    });
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
+    return res.send(file.buffer);
+  }
+
   @Get('reports/journal-submissions')
   @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   getJournalSubmissionsStats(

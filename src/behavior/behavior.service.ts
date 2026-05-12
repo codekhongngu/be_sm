@@ -1139,6 +1139,131 @@ export class BehaviorService implements OnModuleInit {
     };
   }
 
+  async exportApprovedJournalsForms2345File(
+    currentUser: any,
+    filters: { fromDate?: string; toDate?: string; unitId?: string; keyword?: string },
+  ) {
+    let query = `
+      WITH approved_form2 AS (
+        SELECT b.user_id, b.log_date
+        FROM behavior_checklist_logs b
+        WHERE b.status = 'APPROVED'
+      ),
+      approved_form345 AS (
+        SELECT d.user_id::uuid AS user_id, d.log_date, d.form_type
+        FROM daily_form_reviews d
+        WHERE d.status = 'APPROVED'
+          AND d.form_type IN ('FORM_3', 'FORM_4', 'FORM_5')
+      ),
+      base_dates AS (
+        SELECT user_id, log_date FROM approved_form2
+        UNION
+        SELECT user_id, log_date FROM approved_form345
+      ),
+      form4_agg AS (
+        SELECT
+          s.user_id,
+          s.log_date,
+          STRING_AGG(COALESCE(s.customer_name, ''), ' | ' ORDER BY s.created_at) AS customer_names,
+          STRING_AGG(COALESCE(s.customer_issue, ''), ' | ' ORDER BY s.created_at) AS customer_issues,
+          STRING_AGG(COALESCE(s.solution_offered, ''), ' | ' ORDER BY s.created_at) AS solutions,
+          STRING_AGG(COALESCE(s.result, ''), ' | ' ORDER BY s.created_at) AS results
+        FROM sales_activity_reports s
+        GROUP BY s.user_id, s.log_date
+      )
+      SELECT
+        TO_CHAR(base.log_date, 'YYYY-MM-DD') AS "Ngày",
+        un.name AS "Tên đơn vị",
+        u."fullName" AS "Tên nhân viên",
+        u.username AS "Tài khoản",
+        CASE WHEN f2.user_id IS NOT NULL THEN 'Đã duyệt' ELSE 'Chưa duyệt' END AS "Mẫu 2 - Trạng thái",
+        COALESCE(f2.customer_met_count, 0) AS "Mẫu 2 - Số khách gặp",
+        CASE WHEN COALESCE(f2.asked_deep_question, false) THEN 'Có' ELSE 'Không' END AS "Mẫu 2 - Hỏi sâu",
+        CASE WHEN COALESCE(f2.full_consultation, false) THEN 'Có' ELSE 'Không' END AS "Mẫu 2 - Tư vấn đủ",
+        CASE WHEN COALESCE(f2.followed_through, false) THEN 'Có' ELSE 'Không' END AS "Mẫu 2 - Theo đến cùng",
+        COALESCE(f2.employee_notes, '') AS "Mẫu 2 - Ghi chú nhân viên",
+        CASE WHEN r3.user_id IS NOT NULL THEN 'Đã duyệt' ELSE 'Chưa duyệt' END AS "Mẫu 3 - Trạng thái",
+        COALESCE(m3.negative_thought, '') AS "Mẫu 3 - Suy nghĩ tiêu cực",
+        COALESCE(m3.new_mindset, '') AS "Mẫu 3 - Tư duy mới",
+        COALESCE(m3.behavior_change, '') AS "Mẫu 3 - Hành vi thay đổi",
+        CASE WHEN r4.user_id IS NOT NULL THEN 'Đã duyệt' ELSE 'Chưa duyệt' END AS "Mẫu 4 - Trạng thái",
+        COALESCE(f4.customer_names, '') AS "Mẫu 4 - Khách hàng",
+        COALESCE(f4.customer_issues, '') AS "Mẫu 4 - Vấn đề khách hàng",
+        COALESCE(f4.solutions, '') AS "Mẫu 4 - Giải pháp đề xuất",
+        COALESCE(f4.results, '') AS "Mẫu 4 - Kết quả",
+        CASE WHEN r5.user_id IS NOT NULL THEN 'Đã duyệt' ELSE 'Chưa duyệt' END AS "Mẫu 5 - Trạng thái",
+        COALESCE(e5.tomorrow_lesson, '') AS "Mẫu 5 - Bài học ngày mai",
+        COALESCE(e5.different_action, '') AS "Mẫu 5 - Việc làm khác đi"
+      FROM base_dates base
+      INNER JOIN users u ON u.id = base.user_id
+      INNER JOIN units un ON un.id = u."unitId"
+      LEFT JOIN behavior_checklist_logs f2
+        ON f2.user_id = base.user_id
+        AND f2.log_date = base.log_date
+        AND f2.status = 'APPROVED'
+      LEFT JOIN approved_form345 r3
+        ON r3.user_id = base.user_id
+        AND r3.log_date = base.log_date
+        AND r3.form_type = 'FORM_3'
+      LEFT JOIN mindset_logs m3
+        ON m3.user_id = base.user_id
+        AND m3.log_date = base.log_date
+      LEFT JOIN approved_form345 r4
+        ON r4.user_id = base.user_id
+        AND r4.log_date = base.log_date
+        AND r4.form_type = 'FORM_4'
+      LEFT JOIN form4_agg f4
+        ON f4.user_id = base.user_id
+        AND f4.log_date = base.log_date
+      LEFT JOIN approved_form345 r5
+        ON r5.user_id = base.user_id
+        AND r5.log_date = base.log_date
+        AND r5.form_type = 'FORM_5'
+      LEFT JOIN end_of_day_logs e5
+        ON e5.user_id = base.user_id
+        AND e5.log_date = base.log_date
+      WHERE u.role = 'EMPLOYEE'
+        AND (un."excludeFromStatistics" IS NULL OR un."excludeFromStatistics" = false)
+    `;
+
+    const params: any[] = [];
+    let paramIndex = 1;
+
+    if (filters.fromDate) {
+      query += ` AND base.log_date >= $${paramIndex++}`;
+      params.push(filters.fromDate);
+    }
+    if (filters.toDate) {
+      query += ` AND base.log_date <= $${paramIndex++}`;
+      params.push(filters.toDate);
+    }
+    if (currentUser.role === Role.MANAGER) {
+      query += ` AND u."unitId" = $${paramIndex++}`;
+      params.push(currentUser.unitId);
+    } else if (filters.unitId) {
+      query += ` AND u."unitId" = $${paramIndex++}`;
+      params.push(filters.unitId);
+    }
+    const keyword = String(filters.keyword || '').trim().toLowerCase();
+    if (keyword) {
+      query += ` AND (LOWER(u."fullName") LIKE $${paramIndex} OR LOWER(u.username) LIKE $${paramIndex++})`;
+      params.push(`%${keyword}%`);
+    }
+
+    query += ` ORDER BY un.name ASC, u."fullName" ASC, base.log_date DESC`;
+
+    const rows = await this.journalsRepository.query(query, params);
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Mau2345');
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+    return {
+      buffer,
+      fileName: `bao-cao-mau-2-3-4-5-${filters.fromDate || 'all'}-${filters.toDate || 'all'}.xlsx`,
+    };
+  }
+
   async evaluateBehaviorLog(id: string, dto: EvaluateBehaviorLogDto, currentUser: any) {
     const record = await this.behaviorChecklistLogsRepository.findOne(id);
     if (!record) {
