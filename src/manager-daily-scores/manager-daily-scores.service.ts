@@ -1009,4 +1009,21 @@ export class ManagerDailyScoresService {
       fileName: `bao-cao-thong-ke-toan-tinh-${normalizedDate}.xlsx`,
     };
   }
+
+  async exportUnitStatisticsFile(
+    currentUser: any,
+    scoreDate: string,
+    filters?: { unitId?: string },
+  ) {
+    const unitId =
+      currentUser?.role === Role.MANAGER ? currentUser?.unitId : filters?.unitId;
+    const file = await this.exportProvincialStatisticsFile(scoreDate, { unitId });
+    return {
+      buffer: file.buffer,
+      fileName: String(file.fileName || '').replace(
+        'bao-cao-thong-ke-toan-tinh-',
+        'bao-cao-thong-ke-don-vi-',
+      ),
+    };
+  }
 }

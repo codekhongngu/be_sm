@@ -133,6 +133,27 @@ export class ManagerDailyScoresController {
     return res.send(file.buffer);
   }
 
+  @Get('unit-statistics-export')
+  @Roles(Role.MANAGER, Role.ADMIN)
+  async exportUnitStatistics(
+    @Req() req: any,
+    @Res() res: Response,
+    @Query('scoreDate') scoreDate: string,
+    @Query('unitId') unitId?: string,
+  ) {
+    const file = await this.managerDailyScoresService.exportUnitStatisticsFile(
+      req.user,
+      scoreDate,
+      { unitId },
+    );
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
+    return res.send(file.buffer);
+  }
+
   @Get('statistics/:scoreDate')
   @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   getStatisticsByDate(@Req() req: any, @Param('scoreDate') scoreDate: string) {
