@@ -44,7 +44,7 @@ export class BehaviorController {
   }
 
   @Get('logs/history')
-  @Roles(Role.EMPLOYEE, Role.MANAGER, Role.ADMIN)
+  @Roles(Role.EMPLOYEE, Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   getLogsHistory(@Req() req: any, @Query('logDate') logDate: string, @Query('userId') userId: string) {
     // If employee, force userId to themselves. If manager/admin, they can query specific userId.
     const targetUserId = req.user.role === Role.EMPLOYEE ? req.user.id : (userId || req.user.id);
