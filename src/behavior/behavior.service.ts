@@ -1139,6 +1139,135 @@ export class BehaviorService implements OnModuleInit {
     };
   }
 
+  async exportApprovedJournalsStatusForms2345File(
+    currentUser: any,
+    filters: { reportDate: string; unitId?: string },
+  ) {
+    const reportDate = String(filters?.reportDate || '').slice(0, 10);
+    if (!reportDate) {
+      throw new BadRequestException('Thiếu reportDate');
+    }
+
+    let query = `
+      WITH target_date AS (
+        SELECT
+          CAST($1 AS DATE) AS report_date,
+          (CAST($1 AS DATE) + INTERVAL '8 hour') AS start_time,
+          (CAST($1 AS DATE) + INTERVAL '1 day' + INTERVAL '8 hour') AS end_time
+      ),
+      form2_data AS (
+        SELECT b.user_id
+        FROM behavior_checklist_logs b
+        CROSS JOIN target_date t
+        WHERE b.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh' >= t.start_time
+          AND b.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh' < t.end_time
+        GROUP BY b.user_id
+      ),
+      form2_reviews AS (
+        SELECT
+          b.user_id,
+          MAX(CASE WHEN b.status = 'APPROVED' THEN 1 ELSE 0 END) AS form2_approved
+        FROM behavior_checklist_logs b
+        CROSS JOIN target_date t
+        WHERE b.log_date = t.report_date
+        GROUP BY b.user_id
+      ),
+      form3_data AS (
+        SELECT m.user_id
+        FROM mindset_logs m
+        CROSS JOIN target_date t
+        WHERE m.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh' >= t.start_time
+          AND m.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh' < t.end_time
+        GROUP BY m.user_id
+      ),
+      form4_data AS (
+        SELECT s.user_id
+        FROM sales_activity_reports s
+        CROSS JOIN target_date t
+        WHERE s.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh' >= t.start_time
+          AND s.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh' < t.end_time
+        GROUP BY s.user_id
+      ),
+      form5_data AS (
+        SELECT e.user_id
+        FROM end_of_day_logs e
+        CROSS JOIN target_date t
+        WHERE e.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh' >= t.start_time
+          AND e.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh' < t.end_time
+        GROUP BY e.user_id
+      ),
+      reviews AS (
+        SELECT
+          user_id,
+          MAX(CASE WHEN form_type = 'FORM_3' AND status = 'APPROVED' THEN 1 ELSE 0 END) AS form3_approved,
+          MAX(CASE WHEN form_type = 'FORM_4' AND status = 'APPROVED' THEN 1 ELSE 0 END) AS form4_approved,
+          MAX(CASE WHEN form_type = 'FORM_5' AND status = 'APPROVED' THEN 1 ELSE 0 END) AS form5_approved
+        FROM daily_form_reviews
+        CROSS JOIN target_date t
+        WHERE log_date = t.report_date
+        GROUP BY user_id
+      )
+      SELECT
+        u.name AS "Tên đơn vị",
+        e."fullName" AS "Tên nhân viên",
+        TO_CHAR((SELECT report_date FROM target_date), 'DD/MM/YYYY') AS "Ngày thực hiện",
+        CASE
+          WHEN f2r.form2_approved = 1 THEN 'Đã duyệt'
+          WHEN f2.user_id IS NOT NULL THEN 'Đã nhập'
+          ELSE 'Chưa nhập'
+        END AS "Mẫu 02",
+        CASE
+          WHEN r.form3_approved = 1 THEN 'Đã duyệt'
+          WHEN f3.user_id IS NOT NULL THEN 'Đã nhập'
+          ELSE 'Chưa nhập'
+        END AS "Mẫu 03",
+        CASE
+          WHEN r.form4_approved = 1 THEN 'Đã duyệt'
+          WHEN f4.user_id IS NOT NULL THEN 'Đã nhập'
+          ELSE 'Chưa nhập'
+        END AS "Mẫu 04",
+        CASE
+          WHEN r.form5_approved = 1 THEN 'Đã duyệt'
+          WHEN f5.user_id IS NOT NULL THEN 'Đã nhập'
+          ELSE 'Chưa nhập'
+        END AS "Mẫu 05"
+      FROM users e
+      JOIN units u ON e."unitId" = u.id
+      LEFT JOIN form2_data f2 ON e.id = f2.user_id
+      LEFT JOIN form2_reviews f2r ON e.id = f2r.user_id
+      LEFT JOIN form3_data f3 ON e.id = f3.user_id
+      LEFT JOIN form4_data f4 ON e.id = f4.user_id
+      LEFT JOIN form5_data f5 ON e.id = f5.user_id
+      LEFT JOIN reviews r ON e.id = r.user_id::uuid
+      WHERE e.role = 'EMPLOYEE'
+        AND (u."excludeFromStatistics" IS NULL OR u."excludeFromStatistics" = false)
+    `;
+
+    const params: any[] = [reportDate];
+    let paramIndex = 2;
+
+    if (currentUser.role === Role.MANAGER) {
+      query += ` AND e."unitId" = $${paramIndex++}`;
+      params.push(currentUser.unitId);
+    } else if (filters?.unitId) {
+      query += ` AND e."unitId" = $${paramIndex++}`;
+      params.push(filters.unitId);
+    }
+
+    query += ` ORDER BY u.name ASC, e."fullName" ASC`;
+
+    const rows = await this.journalsRepository.query(query, params);
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Mau2345');
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+    return {
+      buffer,
+      fileName: `bao-cao-trang-thai-mau-2-3-4-5-${reportDate}.xlsx`,
+    };
+  }
+
   async exportApprovedJournalsForms2345File(
     currentUser: any,
     filters: { fromDate?: string; toDate?: string; unitId?: string; keyword?: string },
