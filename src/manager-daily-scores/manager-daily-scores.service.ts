@@ -914,6 +914,7 @@ export class ManagerDailyScoresService {
       .innerJoin('manager_daily_score_criteria', 'c', 'i.criteria_id = c.id')
       .select('u.name', 'unitName')
       .addSelect('e."fullName"', 'fullName')
+      .addSelect('e."employeeCode"', 'employeeCode')
       .addSelect('s.score_date', 'scoreDate');
 
     criteriaPairs.forEach((pair) => {
@@ -952,6 +953,7 @@ export class ManagerDailyScoresService {
 
     qb.groupBy('u.name')
       .addGroupBy('e."fullName"')
+      .addGroupBy('e."employeeCode"')
       .addGroupBy('s.score_date')
       .addGroupBy('s.status')
       .orderBy('u.name', 'ASC')
@@ -962,6 +964,7 @@ export class ManagerDailyScoresService {
     const exportRows = rows.map((row) => ({
       'Đơn vị': row.unitName || '',
       'Họ và tên': row.fullName || '',
+      'Mã nhân viên': row.employeeCode || '',
       Ngày: row.scoreDate || '',
       'Điểm - Tham gia đào tạo, giao ban': Number(row.learningTrainingParticipationScore || 0),
       'Nội dung - Tham gia đào tạo, giao ban': row.learningTrainingParticipationNote || '',

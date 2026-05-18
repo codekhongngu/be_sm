@@ -1088,6 +1088,7 @@ export class BehaviorService implements OnModuleInit {
       SELECT
         u.name AS "Tên đơn vị",
         e."fullName" AS "Tên nhân viên",
+        e."employeeCode" AS "Mã nhân viên",
         TO_CHAR((SELECT report_date FROM target_date), 'DD/MM/YYYY') AS "Ngày thực hiện",
         CASE
           WHEN r.form1_approved = 1 THEN 'Đã duyệt'
@@ -1210,6 +1211,7 @@ export class BehaviorService implements OnModuleInit {
       SELECT
         u.name AS "Tên đơn vị",
         e."fullName" AS "Tên nhân viên",
+        e."employeeCode" AS "Mã nhân viên",
         TO_CHAR((SELECT report_date FROM target_date), 'DD/MM/YYYY') AS "Ngày thực hiện",
         CASE
           WHEN f2r.form2_approved = 1 THEN 'Đã duyệt'
@@ -1482,10 +1484,20 @@ export class BehaviorService implements OnModuleInit {
       unitStats.total += 1;
       if (hasSubmitted) {
         unitStats.submitted += 1;
-        unitStats.submittedUsers.push({ id: user.id, fullName: user.fullName, username: user.username });
+        unitStats.submittedUsers.push({
+          id: user.id,
+          fullName: user.fullName,
+          username: user.username,
+          employeeCode: user.employeeCode || '',
+        });
       } else {
         unitStats.notSubmitted += 1;
-        unitStats.notSubmittedUsers.push({ id: user.id, fullName: user.fullName, username: user.username });
+        unitStats.notSubmittedUsers.push({
+          id: user.id,
+          fullName: user.fullName,
+          username: user.username,
+          employeeCode: user.employeeCode || '',
+        });
       }
     });
 
@@ -1543,6 +1555,7 @@ export class BehaviorService implements OnModuleInit {
       return {
         userId: u.id,
         fullName: u.fullName,
+        employeeCode: u.employeeCode || '',
         unitName: u.unit ? u.unit.name : '',
         totalCustomerMet: sub ? Number(sub.customerMetCount) : 0,
         deepInquiryRate: sub ? Number(sub.deepInquiryRate) : 0,
