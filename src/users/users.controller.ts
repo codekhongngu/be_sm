@@ -738,4 +738,45 @@ export class UsersController {
     res.setHeader('Content-Disposition', 'attachment; filename="user-import-template.xlsx"');
     return res.send(buffer);
   }
+
+  @Get('import-employee-codes-template')
+  @Roles(Role.MANAGER, Role.ADMIN)
+  async downloadEmployeeCodeTemplate(@Res() res: Response) {
+    const templateRows = [
+      { username: 'nv001', employeeCode: 'NV001' },
+      { username: 'nv002', employeeCode: 'NV002' },
+      { username: 'ql001', employeeCode: 'QL001' },
+    ];
+
+    const guideRows = [
+      {
+        field: 'username',
+        required: 'YES',
+        description: 'Tài khoản hiện có trong hệ thống',
+      },
+      {
+        field: 'employeeCode',
+        required: 'YES',
+        description: 'Mã nhân viên cần cập nhật cho tài khoản',
+      },
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    const templateSheet = XLSX.utils.json_to_sheet(templateRows);
+    const guideSheet = XLSX.utils.json_to_sheet(guideRows);
+
+    XLSX.utils.book_append_sheet(workbook, templateSheet, 'template');
+    XLSX.utils.book_append_sheet(workbook, guideSheet, 'guide');
+
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="user-employee-code-template.xlsx"',
+    );
+    return res.send(buffer);
+  }
 }
