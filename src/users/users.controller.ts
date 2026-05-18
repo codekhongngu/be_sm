@@ -73,6 +73,7 @@ export class UsersController {
       username: dto.username.trim(),
       password,
       fullName: dto.fullName.trim(),
+      employeeCode: dto.employeeCode?.trim() || undefined,
       unitId: dto.unitId,
       role: dto.role,
       telegramChatId: dto.telegramChatId?.trim() || undefined,
@@ -81,6 +82,7 @@ export class UsersController {
       id: user.id,
       username: user.username,
       fullName: user.fullName,
+      employeeCode: user.employeeCode,
       role: user.role,
       unitId: user.unitId,
     };
@@ -132,6 +134,9 @@ export class UsersController {
     if (dto.fullName) {
       targetUser.fullName = dto.fullName.trim();
     }
+    if (dto.employeeCode !== undefined) {
+      targetUser.employeeCode = dto.employeeCode?.trim() || undefined;
+    }
     if (dto.role) {
       targetUser.role = dto.role;
     }
@@ -144,6 +149,7 @@ export class UsersController {
       id: updated.id,
       username: updated.username,
       fullName: updated.fullName,
+      employeeCode: updated.employeeCode,
       role: updated.role,
       unitId: updated.unitId,
       telegramChatId: updated.telegramChatId,
@@ -358,6 +364,7 @@ export class UsersController {
       const unitId = String(row.unitId ?? row.donViId ?? '').trim();
       const roleRaw = String(row.role ?? row.vaiTro ?? '').trim().toUpperCase();
       const telegramChatId = String(row.telegramChatId ?? row.telegram ?? '').trim();
+      const employeeCode = String(row.employeeCode ?? row.maNhanVien ?? row.maNV ?? '').trim();
 
       if (!username || !passwordRaw || !fullName) {
         skipped.push({ username, reason: 'Thiếu dữ liệu bắt buộc' });
@@ -425,6 +432,7 @@ export class UsersController {
         username,
         password,
         fullName,
+        employeeCode: employeeCode || undefined,
         unitId: unit.id,
         role: selectedRole,
         telegramChatId: telegramChatId || undefined,
@@ -433,6 +441,7 @@ export class UsersController {
         id: user.id,
         username: user.username,
         fullName: user.fullName,
+        employeeCode: user.employeeCode,
       });
     }
 
@@ -442,6 +451,130 @@ export class UsersController {
       skippedCount: skipped.length,
       created,
       skipped,
+    };
+  }
+
+  @Post('import-employee-codes')
+  @Roles(Role.MANAGER, Role.ADMIN)
+  @UseInterceptors(FileInterceptor('file'))
+  async importEmployeeCodes(@UploadedFile() file: any, @Req() req: any) {
+    if (!file) {
+      throw new BadRequestException('Thiếu file Excel');
+    }
+
+    const workbook = XLSX.read(file.buffer, { type: 'buffer' });
+    const firstSheetName = workbook.SheetNames[0];
+    const firstSheet = workbook.Sheets[firstSheetName];
+    const rows = XLSX.utils.sheet_to_json(firstSheet, { defval: '' }) as any[];
+
+    if (!rows.length) {
+      throw new BadRequestException('File Excel không có dữ liệu');
+    }
+
+    const updated = [];
+    const skipped = [];
+
+    for (const row of rows) {
+      const username = String(row.username ?? row.userName ?? row.taiKhoan ?? '').trim();
+      const fullName = String(row.fullName ?? row.hoTen ?? row.name ?? '').trim();
+      const unitCode = String(row.unitCode ?? row.maDonVi ?? row.unit ?? '').trim();
+      const unitName = String(row.unitName ?? row.tenDonVi ?? '').trim();
+      const employeeCode = String(row.employeeCode ?? row.maNhanVien ?? row.maNV ?? '').trim();
+
+      if (!employeeCode) {
+        skipped.push({ username, fullName, reason: 'Thiếu mã nhân viên' });
+        continue;
+      }
+
+      let targetUser = username
+        ? await this.usersService.findByUsername(username)
+        : null;
+
+      if (!targetUser && username) {
+        targetUser = await this.usersService.findByUsernameIgnoreCase(username);
+      }
+
+      if (!targetUser && fullName) {
+        const unit =
+          req.user.role === Role.ADMIN
+            ? await (async () => {
+                if (unitCode) {
+                  const byCode =
+                    (await this.usersService.findUnitByCode(unitCode)) ||
+                    (await this.usersService.findUnitByCodeIgnoreCase(unitCode));
+                  if (byCode) {
+                    return byCode;
+                  }
+                }
+                if (unitName) {
+                  return this.usersService.findUnitByNameIgnoreCase(unitName);
+                }
+                return null;
+              })()
+            : await this.usersService.findUnitById(req.user.unitId);
+
+        if (!unit) {
+          skipped.push({
+            username,
+            fullName,
+            employeeCode,
+            reason: 'Không tìm thấy đơn vị để đối chiếu',
+          });
+          continue;
+        }
+
+        const matchedUsers = await this.usersService.findByFullNameAndUnitId(fullName, unit.id);
+        if (matchedUsers.length === 1) {
+          targetUser = matchedUsers[0];
+        } else if (matchedUsers.length > 1) {
+          skipped.push({
+            username,
+            fullName,
+            employeeCode,
+            reason: 'Trùng nhiều tài khoản theo họ tên và đơn vị',
+          });
+          continue;
+        }
+      }
+
+      if (!targetUser) {
+        skipped.push({
+          username,
+          fullName,
+          employeeCode,
+          reason: 'Không tìm thấy tài khoản để ánh xạ',
+        });
+        continue;
+      }
+
+      if (req.user.role === Role.MANAGER && targetUser.unitId !== req.user.unitId) {
+        skipped.push({
+          username,
+          fullName,
+          employeeCode,
+          reason: 'Không thuộc đơn vị quản lý hiện tại',
+        });
+        continue;
+      }
+
+      targetUser.employeeCode = employeeCode;
+      await this.usersService.save(targetUser);
+      updated.push({
+        id: targetUser.id,
+        username: targetUser.username,
+        fullName: targetUser.fullName,
+        employeeCode: targetUser.employeeCode,
+      });
+    }
+
+    return {
+      totalRows: rows.length,
+      updatedCount: updated.length,
+      skippedCount: skipped.length,
+      updated,
+      skipped,
+      mappingRule:
+        'Ưu tiên khớp username; nếu không có thì khớp fullName + đơn vị khi duy nhất',
     };
   }
 
@@ -463,6 +596,7 @@ export class UsersController {
         username: 'nv001',
         password: '123456',
         fullName: 'Nguyễn Văn A',
+        employeeCode: 'NV001',
         unitCode: sampleUnitCode,
         unitName: sampleUnitName,
         role: 'EMPLOYEE',
@@ -472,6 +606,7 @@ export class UsersController {
         username: 'nv002',
         password: '123456',
         fullName: 'Trần Thị B',
+        employeeCode: 'NV002',
         unitCode: sampleUnitCode,
         unitName: sampleUnitName,
         role: 'EMPLOYEE',
@@ -481,6 +616,7 @@ export class UsersController {
         username: 'ql001',
         password: '123456',
         fullName: 'Lê Văn C',
+        employeeCode: 'QL001',
         unitCode: sampleUnitCode,
         unitName: sampleUnitName,
         role: req.user.role === Role.MANAGER ? 'EMPLOYEE' : 'MANAGER',
@@ -512,6 +648,11 @@ export class UsersController {
         description: 'Họ tên người dùng',
       },
       {
+        field: 'employeeCode',
+        required: 'OPTIONAL',
+        description: 'Mã nhân viên để ánh xạ với danh sách ngoài hệ thống',
+      },
+      {
         field: 'unitCode',
         required: req.user.role === Role.ADMIN ? 'YES' : 'OPTIONAL',
         description: 'Mã đơn vị. ADMIN import theo đơn vị trong file',
@@ -537,10 +678,57 @@ export class UsersController {
     const templateSheet = XLSX.utils.json_to_sheet(templateRows);
     const unitSheet = XLSX.utils.json_to_sheet(unitRows);
     const guideSheet = XLSX.utils.json_to_sheet(guideRows);
+    const employeeCodeMappingRows = [
+      {
+        username: 'nv001',
+        fullName: 'Nguyễn Văn A',
+        employeeCode: 'NV001',
+        unitCode: sampleUnitCode,
+        unitName: sampleUnitName,
+      },
+      {
+        username: 'nv002',
+        fullName: 'Trần Thị B',
+        employeeCode: 'NV002',
+        unitCode: sampleUnitCode,
+        unitName: sampleUnitName,
+      },
+    ];
+    const employeeCodeGuideRows = [
+      {
+        field: 'username',
+        required: 'RECOMMENDED',
+        description: 'Khóa ánh xạ tốt nhất với tài khoản hiện có',
+      },
+      {
+        field: 'fullName',
+        required: 'OPTIONAL',
+        description: 'Fallback khi thiếu username, cần kết hợp với đơn vị',
+      },
+      {
+        field: 'employeeCode',
+        required: 'YES',
+        description: 'Mã nhân viên cần cập nhật vào tài khoản hiện có',
+      },
+      {
+        field: 'unitCode',
+        required: 'OPTIONAL',
+        description: 'Dùng hỗ trợ fallback fullName + đơn vị',
+      },
+      {
+        field: 'unitName',
+        required: 'OPTIONAL',
+        description: 'Fallback khi thiếu unitCode',
+      },
+    ];
+    const employeeCodeTemplateSheet = XLSX.utils.json_to_sheet(employeeCodeMappingRows);
+    const employeeCodeGuideSheet = XLSX.utils.json_to_sheet(employeeCodeGuideRows);
 
     XLSX.utils.book_append_sheet(workbook, templateSheet, 'template');
     XLSX.utils.book_append_sheet(workbook, unitSheet, 'units');
     XLSX.utils.book_append_sheet(workbook, guideSheet, 'guide');
+    XLSX.utils.book_append_sheet(workbook, employeeCodeTemplateSheet, 'employee-code-mapping');
+    XLSX.utils.book_append_sheet(workbook, employeeCodeGuideSheet, 'employee-code-guide');
 
     const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
     res.setHeader(

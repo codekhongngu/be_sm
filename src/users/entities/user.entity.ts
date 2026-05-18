@@ -27,6 +27,9 @@ export class User {
   @Column()
   fullName: string;
 
+  @Column({ nullable: true })
+  employeeCode?: string;
+
   @ManyToOne(() => Unit, (unit) => unit.users, { eager: true })
   @JoinColumn({ name: 'unitId' })
   unit: Unit;

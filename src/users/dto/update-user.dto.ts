@@ -11,6 +11,10 @@ export class UpdateUserDto {
   fullName?: string;
 
   @IsOptional()
+  @IsString()
+  employeeCode?: string;
+
+  @IsOptional()
   @IsUUID()
   unitId?: string;
 

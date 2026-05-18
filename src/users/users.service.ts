@@ -38,6 +38,13 @@ export class UsersService {
     return this.usersRepository.findOne({ username });
   }
 
+  findByUsernameIgnoreCase(username: string) {
+    return this.usersRepository
+      .createQueryBuilder('user')
+      .where('LOWER(user.username) = LOWER(:username)', { username })
+      .getOne();
+  }
+
   findById(id: string) {
     return this.usersRepository.findOne(id);
   }
@@ -46,6 +53,14 @@ export class UsersService {
     return this.usersRepository.find({
       order: { fullName: 'ASC' },
     });
+  }
+
+  findByFullNameAndUnitId(fullName: string, unitId: string) {
+    return this.usersRepository
+      .createQueryBuilder('user')
+      .where('LOWER(user.fullName) = LOWER(:fullName)', { fullName })
+      .andWhere('user.unitId = :unitId', { unitId })
+      .getMany();
   }
 
   create(data: Partial<User>) {

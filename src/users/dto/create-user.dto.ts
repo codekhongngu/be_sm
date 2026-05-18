@@ -12,6 +12,10 @@ export class CreateUserDto {
   @IsString()
   fullName: string;
 
+  @IsOptional()
+  @IsString()
+  employeeCode?: string;
+
   @IsUUID()
   unitId: string;
 
