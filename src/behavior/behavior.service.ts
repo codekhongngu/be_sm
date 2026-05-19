@@ -9,7 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Role } from 'src/common/enums/role.enum';
 import { Journal } from 'src/journals/entities/journal.entity';
 import { User } from 'src/users/entities/user.entity';
-import { Repository } from 'typeorm';
+import { Between, Repository } from 'typeorm';
 import * as XLSX from 'xlsx';
 import {
   BehaviorChecklistLog,
@@ -393,6 +393,165 @@ export class BehaviorService implements OnModuleInit {
       form12: await this.careerCommitmentLogsRepository.findOne({ userId, logDate }),
       reviews: reviewsByFormType,
     };
+  }
+
+  async getJourneyTimelineFormStatuses(
+    currentUser: any,
+    filters: { fromDate?: string; toDate?: string },
+  ) {
+    const userId = currentUser.id;
+    const fromDate = String(filters?.fromDate || '').slice(0, 10);
+    const toDate = String(filters?.toDate || '').slice(0, 10);
+
+    if (!fromDate || !toDate) {
+      throw new BadRequestException('Thiếu fromDate hoặc toDate');
+    }
+    if (fromDate > toDate) {
+      throw new BadRequestException('fromDate không được lớn hơn toDate');
+    }
+
+    const dateRange = Between(fromDate, toDate);
+    const createDefaultEntry = () => ({
+      awareness: false,
+      standards: false,
+      behavior: false,
+      form3: false,
+      form4: false,
+      form5: false,
+      form7: false,
+      form8: false,
+      form9: false,
+      form12: false,
+      approved: {
+        awareness: false,
+        standards: false,
+        behavior: false,
+        form3: false,
+        form4: false,
+        form5: false,
+        form7: false,
+        form8: false,
+        form9: false,
+        form12: false,
+      },
+    });
+    const timelineMap: Record<string, any> = {};
+    const ensure = (dateKey: string) => {
+      if (!timelineMap[dateKey]) {
+        timelineMap[dateKey] = createDefaultEntry();
+      }
+      return timelineMap[dateKey];
+    };
+
+    const [
+      journals,
+      behaviorLogs,
+      mindsetLogs,
+      salesReports,
+      endOfDayLogs,
+      phase3Logs,
+      beliefLogs,
+      incomeLogs,
+      careerLogs,
+      reviews,
+    ] = await Promise.all([
+      this.journalsRepository.find({
+        where: { userId, reportDate: dateRange },
+      }),
+      this.behaviorChecklistLogsRepository.find({
+        where: { userId, logDate: dateRange },
+      }),
+      this.mindsetLogsRepository.find({
+        where: { userId, logDate: dateRange },
+      }),
+      this.salesActivityReportsRepository.find({
+        where: { userId, logDate: dateRange },
+      }),
+      this.endOfDayLogsRepository.find({
+        where: { userId, logDate: dateRange },
+      }),
+      this.phase3StandardLogsRepository.find({
+        where: { userId, logDate: dateRange },
+      }),
+      this.beliefTransformationLogsRepository.find({
+        where: { userId, logDate: dateRange },
+      }),
+      this.incomeBreakthroughLogsRepository.find({
+        where: { userId, logDate: dateRange },
+      }),
+      this.careerCommitmentLogsRepository.find({
+        where: { userId, logDate: dateRange },
+      }),
+      this.dailyFormReviewsRepository.find({
+        where: { userId, logDate: dateRange },
+      }),
+    ]);
+
+    journals.forEach((journal) => {
+      const entry = ensure(journal.reportDate);
+      entry.awareness = !!journal.awarenessSubmittedAt;
+      entry.standards = !!journal.standardsSubmittedAt;
+    });
+
+    behaviorLogs.forEach((log) => {
+      const entry = ensure(log.logDate);
+      entry.behavior = true;
+      entry.approved.behavior = log.status === BehaviorChecklistStatus.APPROVED;
+    });
+    mindsetLogs.forEach((log) => {
+      ensure(log.logDate).form3 = true;
+    });
+    salesReports.forEach((log) => {
+      ensure(log.logDate).form4 = true;
+    });
+    endOfDayLogs.forEach((log) => {
+      ensure(log.logDate).form5 = true;
+    });
+    phase3Logs.forEach((log) => {
+      ensure(log.logDate).form7 = true;
+    });
+    beliefLogs.forEach((log) => {
+      ensure(log.logDate).form8 = true;
+    });
+    incomeLogs.forEach((log) => {
+      ensure(log.logDate).form9 = true;
+    });
+    careerLogs.forEach((log) => {
+      ensure(log.logDate).form12 = true;
+    });
+
+    reviews.forEach((review) => {
+      const entry = ensure(review.logDate);
+      if (review.formType === 'FORM_1_AWARENESS' && review.status === 'APPROVED') {
+        entry.approved.awareness = true;
+      }
+      if (review.formType === 'FORM_1_STANDARDS' && review.status === 'APPROVED') {
+        entry.approved.standards = true;
+      }
+      if (review.formType === 'FORM_3' && review.status === 'APPROVED') {
+        entry.approved.form3 = true;
+      }
+      if (review.formType === 'FORM_4' && review.status === 'APPROVED') {
+        entry.approved.form4 = true;
+      }
+      if (review.formType === 'FORM_5' && review.status === 'APPROVED') {
+        entry.approved.form5 = true;
+      }
+      if (review.formType === 'FORM_7' && review.status === 'APPROVED') {
+        entry.approved.form7 = true;
+      }
+      if (review.formType === 'FORM_8' && review.status === 'APPROVED') {
+        entry.approved.form8 = true;
+      }
+      if (review.formType === 'FORM_9' && review.status === 'APPROVED') {
+        entry.approved.form9 = true;
+      }
+      if (review.formType === 'FORM_12' && review.status === 'APPROVED') {
+        entry.approved.form12 = true;
+      }
+    });
+
+    return timelineMap;
   }
 
   private async upsertDailyReview(

@@ -51,6 +51,16 @@ export class BehaviorController {
     return this.behaviorService.getLogsHistory(targetUserId, logDate);
   }
 
+  @Get('journey/timeline-form-statuses')
+  @Roles(Role.EMPLOYEE)
+  getJourneyTimelineFormStatuses(
+    @Req() req: any,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+  ) {
+    return this.behaviorService.getJourneyTimelineFormStatuses(req.user, { fromDate, toDate });
+  }
+
   @Patch('manager/logs/evaluate/:id')
   @Roles(Role.MANAGER, Role.ADMIN)
   evaluateLog(
