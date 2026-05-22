@@ -48,10 +48,54 @@ const JOURNEY_PHASE_FORM_MAP: Record<string, string[]> = {
   PHASE_3: ['form3', 'form4', 'form5', 'form7', 'form9', 'form12'],
 };
 
-const JOURNEY_FORM_DEFINITIONS: Record<
-  string,
-  { key: string; label: string; formType: string; type: 'journal' | 'log' }
-> = {
+type JourneyFormDefinition = {
+  key: string;
+  label: string;
+  formType: string;
+  type: 'journal' | 'log';
+};
+
+type JourneyPhaseInfo = {
+  id: string;
+  phaseCode: string;
+  phaseName: string;
+  startDate: string;
+  endDate: string;
+};
+
+type JourneyUserSummary = {
+  id: string;
+  fullName: string;
+  username: string;
+  employeeCode: string;
+};
+
+type JourneyFormStats = {
+  key: string;
+  label: string;
+  formType: string;
+  submitted: number;
+  notSubmitted: number;
+  submittedRate: number;
+  notSubmittedRate: number;
+  submittedUsers: JourneyUserSummary[];
+  notSubmittedUsers: JourneyUserSummary[];
+};
+
+type JournalSubmissionUnitStats = {
+  unitId: string;
+  unitName: string;
+  total: number;
+  submitted: number;
+  notSubmitted: number;
+  submittedRate: number;
+  notSubmittedRate: number;
+  submittedUsers: JourneyUserSummary[];
+  notSubmittedUsers: JourneyUserSummary[];
+  forms: JourneyFormStats[];
+};
+
+const JOURNEY_FORM_DEFINITIONS: Record<string, JourneyFormDefinition> = {
   awareness: {
     key: 'awareness',
     label: 'Mẫu 1 - Nhận thức',
@@ -1043,7 +1087,7 @@ export class BehaviorService implements OnModuleInit {
   private resolveJourneyPhaseStatsByDate(
     targetDate: string,
     phaseConfigs: JourneyPhaseConfig[],
-  ) {
+  ): { phaseInfo: JourneyPhaseInfo | null; formDefs: JourneyFormDefinition[] } {
     const activePhaseConfigs = (Array.isArray(phaseConfigs) ? phaseConfigs : [])
       .filter((item) => item?.isActive !== false)
       .sort((a, b) => {
@@ -1067,15 +1111,21 @@ export class BehaviorService implements OnModuleInit {
         ? matched.allowedForms
         : JOURNEY_PHASE_FORM_MAP[phaseCode] || JOURNEY_PHASE_FORM_MAP.PHASE_1;
 
-    const formDefs = Array.from(
-      new Map(
-        (Array.isArray(allowedForms) ? allowedForms : [])
-          .map((item) => String(item || '').trim())
-          .filter(Boolean)
-          .map((key) => [key, JOURNEY_FORM_DEFINITIONS[key]])
-          .filter((entry) => !!entry[1]),
-      ).values(),
-    );
+    const formEntries: Array<[string, JourneyFormDefinition]> = (Array.isArray(allowedForms)
+      ? allowedForms
+      : []
+    )
+      .map((item) => String(item || '').trim())
+      .filter(Boolean)
+      .reduce<Array<[string, JourneyFormDefinition]>>((acc, key) => {
+        const definition = JOURNEY_FORM_DEFINITIONS[key];
+        if (definition) {
+          acc.push([key, definition]);
+        }
+        return acc;
+      }, []);
+
+    const formDefs = Array.from(new Map<string, JourneyFormDefinition>(formEntries).values());
 
     return {
       phaseInfo: matched
@@ -1768,20 +1818,22 @@ export class BehaviorService implements OnModuleInit {
       order: { sortOrder: 'ASC', startDate: 'ASC' },
     });
     const { phaseInfo, formDefs } = this.resolveJourneyPhaseStatsByDate(targetDate, phaseConfigs);
-    const formSubmissionEntries = await Promise.all(
-      formDefs.map(async (form) => [
-        form.key,
-        await this.getSubmittedUserIdsByJourneyForm(form.key, targetDate),
-      ]),
+    const formSubmissionEntries: Array<[string, Set<string>]> = await Promise.all(
+      formDefs.map(
+        async (form): Promise<[string, Set<string>]> => [
+          form.key,
+          await this.getSubmittedUserIdsByJourneyForm(form.key, targetDate),
+        ],
+      ),
     );
-    const submittedUserIdsByForm = new Map<string, Set<string>>(formSubmissionEntries as any);
-    const toUserSummary = (user: User) => ({
+    const submittedUserIdsByForm = new Map<string, Set<string>>(formSubmissionEntries);
+    const toUserSummary = (user: User): JourneyUserSummary => ({
       id: user.id,
       fullName: user.fullName,
       username: user.username,
       employeeCode: user.employeeCode || '',
     });
-    const createFormStats = (form: (typeof formDefs)[number]) => ({
+    const createFormStats = (form: JourneyFormDefinition): JourneyFormStats => ({
       key: form.key,
       label: form.label,
       formType: form.formType,
@@ -1789,8 +1841,8 @@ export class BehaviorService implements OnModuleInit {
       notSubmitted: 0,
       submittedRate: 0,
       notSubmittedRate: 0,
-      submittedUsers: [] as Array<ReturnType<typeof toUserSummary>>,
-      notSubmittedUsers: [] as Array<ReturnType<typeof toUserSummary>>,
+      submittedUsers: [],
+      notSubmittedUsers: [],
     });
 
     const provinceStats = {
@@ -1804,11 +1856,11 @@ export class BehaviorService implements OnModuleInit {
       total: allUsers.length,
       forms: formDefs.map((form) => createFormStats(form)),
     };
-    const provincePhaseStatsMap = new Map(
+    const provincePhaseStatsMap = new Map<string, JourneyFormStats>(
       provincePhaseStats.forms.map((form) => [form.key, form]),
     );
 
-    const unitMap = new Map<string, any>();
+    const unitMap = new Map<string, JournalSubmissionUnitStats>();
 
     allUsers.forEach((user) => {
       const hasSubmitted = submittedUserIds.has(user.id);
@@ -1846,7 +1898,9 @@ export class BehaviorService implements OnModuleInit {
         unitStats.notSubmittedUsers.push(toUserSummary(user));
       }
 
-      const unitFormsMap = new Map(unitStats.forms.map((form) => [form.key, form]));
+      const unitFormsMap = new Map<string, JourneyFormStats>(
+        unitStats.forms.map((form) => [form.key, form]),
+      );
       formDefs.forEach((form) => {
         const isSubmittedInForm = submittedUserIdsByForm.get(form.key)?.has(user.id);
         const provinceFormStats = provincePhaseStatsMap.get(form.key);
