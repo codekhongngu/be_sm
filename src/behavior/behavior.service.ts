@@ -42,6 +42,78 @@ import { BusinessTimeUtil } from '../common/utils/business-time.util';
 import { SaveWeeklyReportDto } from './dto/save-weekly-report.dto';
 import { WeeklyReportSubmission } from './entities/weekly-report-submission.entity';
 
+const JOURNEY_PHASE_FORM_MAP: Record<string, string[]> = {
+  PHASE_1: ['awareness', 'form3', 'form8'],
+  PHASE_2: ['behavior', 'form3', 'form4', 'form5'],
+  PHASE_3: ['form3', 'form4', 'form5', 'form7', 'form9', 'form12'],
+};
+
+const JOURNEY_FORM_DEFINITIONS: Record<
+  string,
+  { key: string; label: string; formType: string; type: 'journal' | 'log' }
+> = {
+  awareness: {
+    key: 'awareness',
+    label: 'Mẫu 1 - Nhận thức',
+    formType: 'FORM_1_AWARENESS',
+    type: 'journal',
+  },
+  standards: {
+    key: 'standards',
+    label: 'Mẫu 1 - Tiêu chuẩn',
+    formType: 'FORM_1_STANDARDS',
+    type: 'journal',
+  },
+  behavior: {
+    key: 'behavior',
+    label: 'Mẫu 2',
+    formType: 'FORM_2',
+    type: 'log',
+  },
+  form3: {
+    key: 'form3',
+    label: 'Mẫu 3',
+    formType: 'FORM_3',
+    type: 'log',
+  },
+  form4: {
+    key: 'form4',
+    label: 'Mẫu 4',
+    formType: 'FORM_4',
+    type: 'log',
+  },
+  form5: {
+    key: 'form5',
+    label: 'Mẫu 5',
+    formType: 'FORM_5',
+    type: 'log',
+  },
+  form7: {
+    key: 'form7',
+    label: 'Mẫu 7',
+    formType: 'FORM_7',
+    type: 'log',
+  },
+  form8: {
+    key: 'form8',
+    label: 'Mẫu 8',
+    formType: 'FORM_8',
+    type: 'log',
+  },
+  form9: {
+    key: 'form9',
+    label: 'Mẫu 9',
+    formType: 'FORM_9',
+    type: 'log',
+  },
+  form12: {
+    key: 'form12',
+    label: 'Mẫu 12',
+    formType: 'FORM_12',
+    type: 'log',
+  },
+};
+
 @Injectable()
 export class BehaviorService implements OnModuleInit {
   private parseLockedEntryDates(value?: string | null): string[] {
@@ -968,6 +1040,94 @@ export class BehaviorService implements OnModuleInit {
     }));
   }
 
+  private resolveJourneyPhaseStatsByDate(
+    targetDate: string,
+    phaseConfigs: JourneyPhaseConfig[],
+  ) {
+    const activePhaseConfigs = (Array.isArray(phaseConfigs) ? phaseConfigs : [])
+      .filter((item) => item?.isActive !== false)
+      .sort((a, b) => {
+        const sortDiff = Number(a.sortOrder || 0) - Number(b.sortOrder || 0);
+        if (sortDiff !== 0) {
+          return sortDiff;
+        }
+        return String(a.startDate || '').localeCompare(String(b.startDate || ''));
+      });
+
+    const matched =
+      activePhaseConfigs.find(
+        (item) =>
+          (!item.startDate || targetDate >= item.startDate) &&
+          (!item.endDate || targetDate <= item.endDate),
+      ) || null;
+
+    const phaseCode = String(matched?.phaseCode || '').toUpperCase();
+    const allowedForms =
+      Array.isArray(matched?.allowedForms) && matched.allowedForms.length > 0
+        ? matched.allowedForms
+        : JOURNEY_PHASE_FORM_MAP[phaseCode] || JOURNEY_PHASE_FORM_MAP.PHASE_1;
+
+    const formDefs = Array.from(
+      new Map(
+        (Array.isArray(allowedForms) ? allowedForms : [])
+          .map((item) => String(item || '').trim())
+          .filter(Boolean)
+          .map((key) => [key, JOURNEY_FORM_DEFINITIONS[key]])
+          .filter((entry) => !!entry[1]),
+      ).values(),
+    );
+
+    return {
+      phaseInfo: matched
+        ? {
+            id: matched.id,
+            phaseCode: matched.phaseCode,
+            phaseName: matched.phaseName,
+            startDate: matched.startDate,
+            endDate: matched.endDate,
+          }
+        : null,
+      formDefs,
+    };
+  }
+
+  private async getSubmittedUserIdsByJourneyForm(formKey: string, targetDate: string) {
+    if (formKey === 'awareness' || formKey === 'standards') {
+      const columnName = formKey === 'awareness' ? 'awarenessSubmittedAt' : 'standardsSubmittedAt';
+      const rows = await this.journalsRepository
+        .createQueryBuilder('j')
+        .select('DISTINCT j."userId"', 'userId')
+        .where('j."reportDate" = :targetDate', { targetDate })
+        .andWhere(`j."${columnName}" IS NOT NULL`)
+        .getRawMany();
+      return new Set(rows.map((item) => item.userId));
+    }
+
+    const logRepositoryMap: Record<string, Repository<any>> = {
+      behavior: this.behaviorChecklistLogsRepository,
+      form3: this.mindsetLogsRepository,
+      form4: this.salesActivityReportsRepository,
+      form5: this.endOfDayLogsRepository,
+      form7: this.phase3StandardLogsRepository,
+      form8: this.beliefTransformationLogsRepository,
+      form9: this.incomeBreakthroughLogsRepository,
+      form12: this.careerCommitmentLogsRepository,
+    };
+
+    const repository = logRepositoryMap[formKey];
+    if (!repository) {
+      return new Set<string>();
+    }
+
+    const rows = await repository
+      .createQueryBuilder('t')
+      .select('DISTINCT t.userId', 'userId')
+      .where('t.logDate = :targetDate', { targetDate })
+      .getRawMany();
+
+    return new Set(rows.map((item) => item.userId));
+  }
+
   async getJourneyPhaseConfigsForAdmin() {
     return this.journeyPhaseConfigsRepository.find({
       order: { sortOrder: 'ASC', startDate: 'ASC' },
@@ -1585,7 +1745,7 @@ export class BehaviorService implements OnModuleInit {
 
   async getJournalSubmissionsStats(currentUser: any, date: string) {
     const targetDate = date || new Date().toISOString().slice(0, 10);
-    
+
     let usersQuery = this.usersRepository.createQueryBuilder('u')
       .leftJoinAndSelect('u.unit', 'unit')
       .where('u.role = :employeeRole', { employeeRole: Role.EMPLOYEE })
@@ -1599,22 +1759,58 @@ export class BehaviorService implements OnModuleInit {
 
     const journals = await this.journalsRepository.find({
       where: { reportDate: targetDate },
-      select: ['userId']
+      select: ['userId'],
     });
-    
-    const submittedUserIds = new Set(journals.map(j => j.userId));
+
+    const submittedUserIds = new Set(journals.map((j) => j.userId));
+    const phaseConfigs = await this.journeyPhaseConfigsRepository.find({
+      where: { isActive: true },
+      order: { sortOrder: 'ASC', startDate: 'ASC' },
+    });
+    const { phaseInfo, formDefs } = this.resolveJourneyPhaseStatsByDate(targetDate, phaseConfigs);
+    const formSubmissionEntries = await Promise.all(
+      formDefs.map(async (form) => [
+        form.key,
+        await this.getSubmittedUserIdsByJourneyForm(form.key, targetDate),
+      ]),
+    );
+    const submittedUserIdsByForm = new Map<string, Set<string>>(formSubmissionEntries as any);
+    const toUserSummary = (user: User) => ({
+      id: user.id,
+      fullName: user.fullName,
+      username: user.username,
+      employeeCode: user.employeeCode || '',
+    });
+    const createFormStats = (form: (typeof formDefs)[number]) => ({
+      key: form.key,
+      label: form.label,
+      formType: form.formType,
+      submitted: 0,
+      notSubmitted: 0,
+      submittedRate: 0,
+      notSubmittedRate: 0,
+      submittedUsers: [] as Array<ReturnType<typeof toUserSummary>>,
+      notSubmittedUsers: [] as Array<ReturnType<typeof toUserSummary>>,
+    });
 
     const provinceStats = {
       total: allUsers.length,
       submitted: 0,
       notSubmitted: 0,
       submittedRate: 0,
-      notSubmittedRate: 0
+      notSubmittedRate: 0,
     };
+    const provincePhaseStats = {
+      total: allUsers.length,
+      forms: formDefs.map((form) => createFormStats(form)),
+    };
+    const provincePhaseStatsMap = new Map(
+      provincePhaseStats.forms.map((form) => [form.key, form]),
+    );
 
     const unitMap = new Map<string, any>();
 
-    allUsers.forEach(user => {
+    allUsers.forEach((user) => {
       const hasSubmitted = submittedUserIds.has(user.id);
       if (hasSubmitted) {
         provinceStats.submitted += 1;
@@ -1635,7 +1831,8 @@ export class BehaviorService implements OnModuleInit {
           submittedRate: 0,
           notSubmittedRate: 0,
           submittedUsers: [],
-          notSubmittedUsers: []
+          notSubmittedUsers: [],
+          forms: formDefs.map((form) => createFormStats(form)),
         });
       }
 
@@ -1643,36 +1840,100 @@ export class BehaviorService implements OnModuleInit {
       unitStats.total += 1;
       if (hasSubmitted) {
         unitStats.submitted += 1;
-        unitStats.submittedUsers.push({
-          id: user.id,
-          fullName: user.fullName,
-          username: user.username,
-          employeeCode: user.employeeCode || '',
-        });
+        unitStats.submittedUsers.push(toUserSummary(user));
       } else {
         unitStats.notSubmitted += 1;
-        unitStats.notSubmittedUsers.push({
-          id: user.id,
-          fullName: user.fullName,
-          username: user.username,
-          employeeCode: user.employeeCode || '',
-        });
+        unitStats.notSubmittedUsers.push(toUserSummary(user));
       }
+
+      const unitFormsMap = new Map(unitStats.forms.map((form) => [form.key, form]));
+      formDefs.forEach((form) => {
+        const isSubmittedInForm = submittedUserIdsByForm.get(form.key)?.has(user.id);
+        const provinceFormStats = provincePhaseStatsMap.get(form.key);
+        const unitFormStats = unitFormsMap.get(form.key);
+        if (!provinceFormStats || !unitFormStats) {
+          return;
+        }
+
+        if (isSubmittedInForm) {
+          provinceFormStats.submitted += 1;
+          provinceFormStats.submittedUsers.push(toUserSummary(user));
+          unitFormStats.submitted += 1;
+          unitFormStats.submittedUsers.push(toUserSummary(user));
+        } else {
+          provinceFormStats.notSubmitted += 1;
+          provinceFormStats.notSubmittedUsers.push(toUserSummary(user));
+          unitFormStats.notSubmitted += 1;
+          unitFormStats.notSubmittedUsers.push(toUserSummary(user));
+        }
+      });
     });
 
-    provinceStats.submittedRate = provinceStats.total > 0 ? Number(((provinceStats.submitted / provinceStats.total) * 100).toFixed(2)) : 0;
-    provinceStats.notSubmittedRate = provinceStats.total > 0 ? Number(((provinceStats.notSubmitted / provinceStats.total) * 100).toFixed(2)) : 0;
-
-    const unitStatsArray = Array.from(unitMap.values()).map(u => {
-      u.submittedRate = u.total > 0 ? Number(((u.submitted / u.total) * 100).toFixed(2)) : 0;
-      u.notSubmittedRate = u.total > 0 ? Number(((u.notSubmitted / u.total) * 100).toFixed(2)) : 0;
-      return u;
+    provincePhaseStats.forms.forEach((form) => {
+      form.submittedRate =
+        provincePhaseStats.total > 0
+          ? Number(((form.submitted / provincePhaseStats.total) * 100).toFixed(2))
+          : 0;
+      form.notSubmittedRate =
+        provincePhaseStats.total > 0
+          ? Number(((form.notSubmitted / provincePhaseStats.total) * 100).toFixed(2))
+          : 0;
     });
+
+    provinceStats.submittedRate =
+      provinceStats.total > 0
+        ? Number(((provinceStats.submitted / provinceStats.total) * 100).toFixed(2))
+        : 0;
+    provinceStats.notSubmittedRate =
+      provinceStats.total > 0
+        ? Number(((provinceStats.notSubmitted / provinceStats.total) * 100).toFixed(2))
+        : 0;
+
+    const unitStatsArray = Array.from(unitMap.values())
+      .map((u) => {
+        u.submittedRate = u.total > 0 ? Number(((u.submitted / u.total) * 100).toFixed(2)) : 0;
+        u.notSubmittedRate =
+          u.total > 0 ? Number(((u.notSubmitted / u.total) * 100).toFixed(2)) : 0;
+        u.forms = (u.forms || []).map((form) => ({
+          ...form,
+          submittedRate: u.total > 0 ? Number(((form.submitted / u.total) * 100).toFixed(2)) : 0,
+          notSubmittedRate:
+            u.total > 0 ? Number(((form.notSubmitted / u.total) * 100).toFixed(2)) : 0,
+        }));
+        return u;
+      })
+      .sort((a, b) => a.unitName.localeCompare(b.unitName, 'vi'));
+
+    const phaseUnits = unitStatsArray.map((item) => ({
+      unitId: item.unitId,
+      unitName: item.unitName,
+      total: item.total,
+      forms: item.forms,
+    }));
+
+    const phaseForms = provincePhaseStats.forms.map((form) => ({
+      key: form.key,
+      label: form.label,
+      formType: form.formType,
+      submitted: form.submitted,
+      notSubmitted: form.notSubmitted,
+      submittedRate: form.submittedRate,
+      notSubmittedRate: form.notSubmittedRate,
+      submittedUsers: form.submittedUsers,
+      notSubmittedUsers: form.notSubmittedUsers,
+    }));
 
     return {
       date: targetDate,
       province: provinceStats,
-      units: unitStatsArray.sort((a, b) => b.submittedRate - a.submittedRate)
+      units: unitStatsArray.sort((a, b) => b.submittedRate - a.submittedRate),
+      phaseInfo,
+      phaseForms,
+      phaseProvince: {
+        total: provincePhaseStats.total,
+        forms: phaseForms,
+      },
+      phaseUnits,
     };
   }
 

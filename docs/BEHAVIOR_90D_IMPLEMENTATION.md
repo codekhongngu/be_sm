@@ -246,3 +246,33 @@ function resolvePhaseForms(joinDate: string, today: string) {
   - Tải dữ liệu từ `GET /behavior-checklist/review?weekId=...&employeeId=...`.
   - Hiển thị checkbox từng tiêu chí và ô phản hồi.
   - Submit `PATCH /behavior-checklist/:id/review`.
+
+## 7) Báo cáo tỷ lệ nhập nhật ký theo giai đoạn
+
+- API: `GET /api/reports/journal-submissions?date=YYYY-MM-DD`
+- Quyền: `MANAGER|ADMIN|PROVINCIAL_VIEWER`
+- Phạm vi dữ liệu:
+  - Chỉ tính nhân viên `role=EMPLOYEE`
+  - Loại trừ các đơn vị có `excludeFromStatistics = true`
+  - Nếu là `MANAGER` thì chỉ tính trong đơn vị quản lý
+- Kết quả gồm 2 nhóm:
+  - `province`, `units`: thống kê tổng số đã nhập/chưa nhập nhật ký theo ngày
+  - `phaseInfo`, `phaseForms`, `phaseProvince`, `phaseUnits`: thống kê theo các mẫu đang áp dụng của giai đoạn tại ngày báo cáo
+- Quy tắc xác định giai đoạn:
+  - Tìm cấu hình `journey_phase_configs` đang hiệu lực theo `start_date/end_date`
+  - Nếu cấu hình có `allowed_forms` thì dùng trực tiếp
+  - Nếu chưa cấu hình `allowed_forms` thì fallback theo `phase_code`
+    - `PHASE_1`: `awareness`, `form3`, `form8`
+    - `PHASE_2`: `behavior`, `form3`, `form4`, `form5`
+    - `PHASE_3`: `form3`, `form4`, `form5`, `form7`, `form9`, `form12`
+- Quy tắc tính trạng thái từng mẫu:
+  - `awareness`: có `journals.awarenessSubmittedAt`
+  - `standards`: có `journals.standardsSubmittedAt`
+  - `behavior`: có bản ghi trong `behavior_checklist_logs`
+  - `form3`: có bản ghi trong `mindset_logs`
+  - `form4`: có bản ghi trong `sales_activity_reports`
+  - `form5`: có bản ghi trong `end_of_day_logs`
+  - `form7`: có bản ghi trong `phase3_standard_logs`
+  - `form8`: có bản ghi trong `belief_transformation_logs`
+  - `form9`: có bản ghi trong `income_breakthrough_logs`
+  - `form12`: có bản ghi trong `career_commitment_logs`
