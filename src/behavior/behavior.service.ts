@@ -2446,6 +2446,135 @@ export class BehaviorService implements OnModuleInit {
     };
   }
 
+  async exportManagerWeeklyJournalsStatusByUnitFile(
+    user: User,
+    filters: { weekId: string; unitId?: string },
+  ) {
+    const weekId = String(filters?.weekId || '').trim();
+    if (!weekId) {
+      throw new BadRequestException('Thiếu weekId');
+    }
+
+    const week = await this.weeklyConfigsRepository.findOne(weekId);
+    if (!week) {
+      throw new NotFoundException('Không tìm thấy tuần đã chọn');
+    }
+
+    let query = `
+      WITH employee_base AS (
+        SELECT
+          u.id AS user_id,
+          un.id AS unit_id,
+          un.name AS unit_name
+        FROM users u
+        INNER JOIN units un ON un.id = u."unitId"
+        WHERE u.role = 'EMPLOYEE'
+          AND (un."excludeFromStatistics" IS NULL OR un."excludeFromStatistics" = false)
+      ),
+      form10_data AS (
+        SELECT
+          user_id,
+          MAX(CASE WHEN status = 'APPROVED' THEN 2 ELSE 1 END) AS form10_state
+        FROM weekly_journal_logs
+        WHERE week_id = $1 AND form_type = 'FORM_10'
+        GROUP BY user_id
+      ),
+      form11_data AS (
+        SELECT
+          user_id,
+          MAX(CASE WHEN status = 'APPROVED' THEN 2 ELSE 1 END) AS form11_state
+        FROM weekly_journal_logs
+        WHERE week_id = $1 AND form_type = 'FORM_11'
+        GROUP BY user_id
+      )
+      SELECT
+        eb.unit_name AS "Tên đơn vị",
+        $2 AS "Tuần",
+        $3 AS "Từ ngày",
+        $4 AS "Đến ngày",
+        COUNT(*)::int AS "Tổng nhân viên",
+        SUM(CASE WHEN COALESCE(f10.form10_state, 0) > 0 THEN 1 ELSE 0 END)::int AS "Mẫu 10 - Đã nhập",
+        ROUND(
+          SUM(CASE WHEN COALESCE(f10.form10_state, 0) > 0 THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0),
+          2
+        ) AS "Mẫu 10 - Tỷ lệ nhập (%)",
+        SUM(CASE WHEN COALESCE(f10.form10_state, 0) = 2 THEN 1 ELSE 0 END)::int AS "Mẫu 10 - Đã duyệt",
+        ROUND(
+          SUM(CASE WHEN COALESCE(f10.form10_state, 0) = 2 THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0),
+          2
+        ) AS "Mẫu 10 - Tỷ lệ duyệt (%)",
+        SUM(CASE WHEN COALESCE(f10.form10_state, 0) = 0 THEN 1 ELSE 0 END)::int AS "Mẫu 10 - Chưa nhập",
+        ROUND(
+          SUM(CASE WHEN COALESCE(f10.form10_state, 0) = 0 THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0),
+          2
+        ) AS "Mẫu 10 - Tỷ lệ chưa nhập (%)",
+        SUM(CASE WHEN COALESCE(f11.form11_state, 0) > 0 THEN 1 ELSE 0 END)::int AS "Mẫu 11 - Đã nhập",
+        ROUND(
+          SUM(CASE WHEN COALESCE(f11.form11_state, 0) > 0 THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0),
+          2
+        ) AS "Mẫu 11 - Tỷ lệ nhập (%)",
+        SUM(CASE WHEN COALESCE(f11.form11_state, 0) = 2 THEN 1 ELSE 0 END)::int AS "Mẫu 11 - Đã duyệt",
+        ROUND(
+          SUM(CASE WHEN COALESCE(f11.form11_state, 0) = 2 THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0),
+          2
+        ) AS "Mẫu 11 - Tỷ lệ duyệt (%)",
+        SUM(CASE WHEN COALESCE(f11.form11_state, 0) = 0 THEN 1 ELSE 0 END)::int AS "Mẫu 11 - Chưa nhập",
+        ROUND(
+          SUM(CASE WHEN COALESCE(f11.form11_state, 0) = 0 THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0),
+          2
+        ) AS "Mẫu 11 - Tỷ lệ chưa nhập (%)",
+        SUM(
+          CASE
+            WHEN COALESCE(f10.form10_state, 0) > 0 AND COALESCE(f11.form11_state, 0) > 0 THEN 1
+            ELSE 0
+          END
+        )::int AS "Đủ 2 mẫu",
+        ROUND(
+          SUM(
+            CASE
+              WHEN COALESCE(f10.form10_state, 0) > 0 AND COALESCE(f11.form11_state, 0) > 0 THEN 1
+              ELSE 0
+            END
+          ) * 100.0 / NULLIF(COUNT(*), 0),
+          2
+        ) AS "Tỷ lệ đủ 2 mẫu (%)"
+      FROM employee_base eb
+      LEFT JOIN form10_data f10 ON eb.user_id = f10.user_id
+      LEFT JOIN form11_data f11 ON eb.user_id = f11.user_id
+      WHERE 1 = 1
+    `;
+
+    const params: any[] = [weekId, week.weekName, week.startDate, week.endDate];
+    let paramIndex = 5;
+
+    if (user.role === Role.MANAGER) {
+      query += ` AND eb.unit_id = $${paramIndex++}`;
+      params.push(user.unitId);
+    } else if (filters.unitId) {
+      query += ` AND eb.unit_id = $${paramIndex++}`;
+      params.push(filters.unitId);
+    }
+
+    query += `
+      GROUP BY eb.unit_name
+      ORDER BY "Tỷ lệ đủ 2 mẫu (%)" DESC, eb.unit_name ASC
+    `;
+
+    const rows = await this.journalsRepository.query(query, params);
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'DonViTyLeMau1011');
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    const normalizedWeek = String(week.weekName || 'all')
+      .replace(/[^\w-]+/g, '-')
+      .toLowerCase();
+
+    return {
+      buffer,
+      fileName: `bao-cao-mau-10-11-theo-don-vi-${normalizedWeek}.xlsx`,
+    };
+  }
+
   async reviewWeeklyJournal(manager: User, dto: any) {
     const { userId, weekId, status, managerComment } = dto;
     if (!userId || !weekId || !status) {

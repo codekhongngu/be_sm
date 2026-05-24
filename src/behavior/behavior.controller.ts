@@ -284,6 +284,29 @@ export class BehaviorController {
     return res.send(file.buffer);
   }
 
+  @Get('manager/weekly-journals/export-status-by-unit')
+  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  async exportManagerWeeklyJournalsStatusByUnit(
+    @Req() req: any,
+    @Res() res: Response,
+    @Query('weekId') weekId: string,
+    @Query('unitId') unitId?: string,
+  ) {
+    const file = await this.behaviorService.exportManagerWeeklyJournalsStatusByUnitFile(
+      req.user,
+      {
+        weekId,
+        unitId,
+      },
+    );
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
+    return res.send(file.buffer);
+  }
+
   @Patch('manager/weekly-journals/review')
   @Roles(Role.MANAGER, Role.ADMIN)
   reviewWeeklyJournal(@Req() req: any, @Body() dto: any) {
