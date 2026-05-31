@@ -31,6 +31,7 @@ import { BeliefTransformationLog } from './behavior/entities/belief-transformati
 import { CareerCommitmentLog } from './behavior/entities/career-commitment-log.entity';
 import { IncomeBreakthroughLog } from './behavior/entities/income-breakthrough-log.entity';
 import { JourneyPhaseConfig } from './behavior/entities/journey-phase-config.entity';
+import { CoachingPhaseConfig } from './behavior/entities/coaching-phase-config.entity';
 import { Phase3StandardLog } from './behavior/entities/phase-3-standard-log.entity';
 import { WeeklyJournalLog } from './behavior/entities/weekly-journal-log.entity';
 import { ManagerDailyScoresModule } from './manager-daily-scores/manager-daily-scores.module';
@@ -39,6 +40,8 @@ import { ManagerDailyScoreSheet } from './manager-daily-scores/entities/manager-
 import { ManagerDailyScoreItem } from './manager-daily-scores/entities/manager-daily-score-item.entity';
 import { SystemConfig } from './behavior/entities/system-config.entity';
 import { WeeklyReportSubmission } from './behavior/entities/weekly-report-submission.entity';
+import { ManagerCoachingLog } from './behavior/entities/manager-coaching-log.entity';
+import { DailyCoachingCustomer } from './behavior/entities/daily-coaching-customer.entity';
 
 @Module({
   imports: [
@@ -85,11 +88,14 @@ import { WeeklyReportSubmission } from './behavior/entities/weekly-report-submis
             IncomeBreakthroughLog,
             CareerCommitmentLog,
             JourneyPhaseConfig,
+            CoachingPhaseConfig,
             ManagerDailyScoreCriterion,
             ManagerDailyScoreSheet,
             ManagerDailyScoreItem,
             SystemConfig,
             WeeklyReportSubmission,
+            ManagerCoachingLog,
+            DailyCoachingCustomer,
           ],
           synchronize: dbSync,
           ...(requireSsl

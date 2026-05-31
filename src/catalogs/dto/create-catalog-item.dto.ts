@@ -11,6 +11,10 @@ export class CreateCatalogItemDto {
   @IsString()
   description?: string;
 
+  @IsOptional()
+  @IsString()
+  category?: string;
+
   @IsNumber()
   @Min(0)
   price: number;

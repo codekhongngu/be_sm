@@ -11,6 +11,7 @@ import { Journal } from 'src/journals/entities/journal.entity';
 import { User } from 'src/users/entities/user.entity';
 import { Between, Repository } from 'typeorm';
 import * as XLSX from 'xlsx';
+import * as ExcelJS from 'exceljs';
 import {
   BehaviorChecklistLog,
   BehaviorChecklistStatus,
@@ -22,6 +23,7 @@ import { DailyFormReview } from './entities/daily-form-review.entity';
 import { EndOfDayLog } from './entities/end-of-day-log.entity';
 import { IncomeBreakthroughLog } from './entities/income-breakthrough-log.entity';
 import { JourneyPhaseConfig } from './entities/journey-phase-config.entity';
+import { CoachingPhaseConfig } from './entities/coaching-phase-config.entity';
 import { MindsetLog } from './entities/mindset-log.entity';
 import { Phase3StandardLog } from './entities/phase-3-standard-log.entity';
 import { SalesActivityReport } from './entities/sales-activity-report.entity';
@@ -34,6 +36,7 @@ import { BehaviorFormType, SubmitLogDto } from './dto/submit-log.dto';
 import { CreateWeeklyConfigDto } from './dto/create-weekly-config.dto';
 import { SubmitWeeklyJournalDto, WeeklyJournalFormType } from './dto/submit-weekly-journal.dto';
 import { UpsertJourneyPhaseConfigDto } from './dto/upsert-journey-phase-config.dto';
+import { UpsertCoachingPhaseConfigDto } from './dto/upsert-coaching-phase-config.dto';
 import { UpdateWeeklyConfigDto } from './dto/update-weekly-config.dto';
 import { validateActionTimeForDate } from '../common/utils/time-validator.util';
 import { Evaluation } from '../evaluations/entities/evaluation.entity';
@@ -41,12 +44,26 @@ import { BusinessTimeUtil } from '../common/utils/business-time.util';
 
 import { SaveWeeklyReportDto } from './dto/save-weekly-report.dto';
 import { WeeklyReportSubmission } from './entities/weekly-report-submission.entity';
+import { ManagerCoachingLog } from './entities/manager-coaching-log.entity';
+import { CreateManagerCoachingLogDto } from './dto/create-manager-coaching-log.dto';
+import { UpdateManagerCoachingLogDto } from './dto/update-manager-coaching-log.dto';
+import { DailyCoachingCustomer } from './entities/daily-coaching-customer.entity';
+import { SaveDailyCoachingCustomerDto } from './dto/save-daily-coaching-customer.dto';
+import { CatalogItem } from '../catalogs/entities/catalog-item.entity';
 
 const JOURNEY_PHASE_FORM_MAP: Record<string, string[]> = {
   PHASE_1: ['awareness', 'form3', 'form8'],
   PHASE_2: ['behavior', 'form3', 'form4', 'form5'],
   PHASE_3: ['form3', 'form4', 'form5', 'form7', 'form9', 'form12'],
 };
+
+const COACHING_PHASE_FORM_MAP: Record<string, string[]> = {
+  PHASE_1: ['coaching_form_1'],
+  PHASE_2: ['coaching_form_2'],
+  PHASE_3: ['coaching_form_2'],
+};
+
+const COACHING_FORM_IDS = ['coaching_form_1', 'coaching_form_2'];
 
 type JourneyFormDefinition = {
   key: string;
@@ -203,6 +220,8 @@ export class BehaviorService implements OnModuleInit {
     private readonly careerCommitmentLogsRepository: Repository<CareerCommitmentLog>,
     @InjectRepository(JourneyPhaseConfig)
     private readonly journeyPhaseConfigsRepository: Repository<JourneyPhaseConfig>,
+    @InjectRepository(CoachingPhaseConfig)
+    private readonly coachingPhaseConfigsRepository: Repository<CoachingPhaseConfig>,
     @InjectRepository(DailyFormReview)
     private readonly dailyFormReviewsRepository: Repository<DailyFormReview>,
     @InjectRepository(DailyFormEditLog)
@@ -213,6 +232,12 @@ export class BehaviorService implements OnModuleInit {
     private readonly systemConfigsRepository: Repository<SystemConfig>,
     @InjectRepository(WeeklyReportSubmission)
     private readonly weeklyReportSubmissionsRepository: Repository<WeeklyReportSubmission>,
+    @InjectRepository(ManagerCoachingLog)
+    private readonly managerCoachingLogsRepository: Repository<ManagerCoachingLog>,
+    @InjectRepository(DailyCoachingCustomer)
+    private readonly dailyCoachingCustomersRepository: Repository<DailyCoachingCustomer>,
+    @InjectRepository(CatalogItem)
+    private readonly catalogItemsRepository: Repository<CatalogItem>,
   ) {}
 
   async onModuleInit() {
@@ -232,6 +257,851 @@ export class BehaviorService implements OnModuleInit {
     BusinessTimeUtil.LOCKED_ENTRY_DATES = new Set(
       this.parseLockedEntryDates(lockedDatesConfig?.value),
     );
+  }
+
+  private normalizeCoachingDateFilter(value?: string) {
+    const normalized = String(value || '').slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : '';
+  }
+
+  private normalizePersonalRevenue(value?: string) {
+    const raw = String(value || '').trim();
+    if (!raw) {
+      return '0.00';
+    }
+
+    let normalized = raw.replace(/\s+/g, '');
+    if (normalized.includes(',') && normalized.includes('.')) {
+      normalized = normalized.replace(/,/g, '');
+    } else if (normalized.includes(',')) {
+      normalized = normalized.replace(',', '.');
+    }
+
+    normalized = normalized.replace(/[^\d.-]/g, '');
+    const numeric = Number(normalized);
+    if (!Number.isFinite(numeric)) {
+      return '0.00';
+    }
+
+    const max = 999999999999.99; // max for numeric(14,2)
+    const clamped = Math.min(Math.max(numeric, 0), max);
+    return clamped.toFixed(2);
+  }
+
+  private getCoachingExcelValue(row: any, keys: string[]) {
+    for (const key of keys) {
+      const value = row?.[key];
+      if (value !== undefined && value !== null && String(value).trim() !== '') {
+        return String(value).trim();
+      }
+    }
+    return '';
+  }
+
+  private parseCoachingFlag(value: any) {
+    const normalized = String(value ?? '').trim().toLowerCase();
+    if (!normalized) return 0;
+    if (['1', 'true', 'co', 'có', 'yes', 'y', 'dung', 'đúng'].includes(normalized)) return 1;
+    return 0;
+  }
+
+  private normalizeCoachingScheduleDate(value: any) {
+    const text = String(value || '').trim();
+    if (!text) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+    const match = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+    if (match) {
+      const dd = String(match[1]).padStart(2, '0');
+      const mm = String(match[2]).padStart(2, '0');
+      const yyyy = String(match[3]);
+      return `${yyyy}-${mm}-${dd}`;
+    }
+    return null;
+  }
+
+  private normalizeCoachingForm(value?: string) {
+    const form = String(value || '').trim();
+    if (COACHING_FORM_IDS.includes(form)) {
+      return form;
+    }
+    return 'coaching_form_1';
+  }
+
+  private async getCoachingReportCutoffHour() {
+    const config = await this.systemConfigsRepository.findOne({ where: { key: 'CUTOFF_HOUR' } });
+    const parsed = Number(config?.value);
+    if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 23) {
+      return parsed;
+    }
+    if (Number.isFinite(BusinessTimeUtil.CUTOFF_HOUR)) {
+      return BusinessTimeUtil.CUTOFF_HOUR;
+    }
+    return 7;
+  }
+
+  async getDailyCoachingCustomers(currentUser: any, logDate?: string, coachingForm?: string) {
+    const date = this.resolveLogDate(logDate);
+    const normalizedCoachingForm = this.normalizeCoachingForm(coachingForm);
+    const rows = await this.dailyCoachingCustomersRepository.find({
+      where: { userId: currentUser.id, logDate: date, coachingForm: normalizedCoachingForm },
+      order: { createdAt: 'DESC' },
+    });
+
+    return rows.map((item) => ({
+      id: item.id,
+      logDate: item.logDate,
+      coachingForm: item.coachingForm || 'coaching_form_1',
+      salesPlan: Number(item.salesPlan) || 0,
+      customerName: item.customerName || '',
+      ward: item.ward || '',
+      customerAddress: item.customerAddress || '',
+      oldReferral: Number(item.oldReferral) || 0,
+      customerFollowUp: Number(item.customerFollowUp) || 0,
+      noEarlyQuote: Number(item.noEarlyQuote) || 0,
+      consultStandard: Number(item.consultStandard) || 0,
+      consultEnoughLayers: Number(item.consultEnoughLayers) || 0,
+      consultSolutionMatchingNeed: Number(item.consultSolutionMatchingNeed) || 0,
+      consultClearBenefit: Number(item.consultClearBenefit) || 0,
+      consultMentionLossAvoidance: Number(item.consultMentionLossAvoidance) || 0,
+      closedService: Number(item.closedService) || 0,
+      personalRevenue: String(item.personalRevenue || '0'),
+      nextFollowRequired: Number(item.nextFollowRequired) || 0,
+      nextFollowStep: item.nextFollowStep || '',
+      nextFollowSchedule: item.nextFollowSchedule || '',
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+    }));
+  }
+
+  async saveDailyCoachingCustomer(currentUser: any, dto: SaveDailyCoachingCustomerDto) {
+    const logDate = this.resolveLogDate(dto.logDate);
+    const coachingForm = this.normalizeCoachingForm(dto.coachingForm);
+    validateActionTimeForDate(logDate, 'Nhập form coaching khách hàng');
+    const personalRevenue = this.normalizePersonalRevenue(dto.personalRevenue);
+    const consultEnoughLayers = Number(dto.consultEnoughLayers || 0);
+    const consultSolutionMatchingNeed = Number(dto.consultSolutionMatchingNeed || 0);
+    const consultClearBenefit = Number(dto.consultClearBenefit || 0);
+    const consultMentionLossAvoidance = Number(dto.consultMentionLossAvoidance || 0);
+    const consultStandard =
+      dto.consultStandard !== undefined
+        ? Number(dto.consultStandard || 0)
+        : consultEnoughLayers &&
+            consultSolutionMatchingNeed &&
+            consultClearBenefit &&
+            consultMentionLossAvoidance
+          ? 1
+          : 0;
+
+    const created = this.dailyCoachingCustomersRepository.create({
+      userId: currentUser.id,
+      logDate,
+      coachingForm,
+      salesPlan: Number(dto.salesPlan) || 0,
+      customerName: String(dto.customerName || '').trim(),
+      ward: String(dto.ward || '').trim(),
+      customerAddress: String(dto.customerAddress || '').trim(),
+      oldReferral: Number(dto.oldReferral) || 0,
+      customerFollowUp: Number(dto.customerFollowUp) || 0,
+      noEarlyQuote: Number(dto.noEarlyQuote) || 0,
+      consultStandard,
+      consultEnoughLayers,
+      consultSolutionMatchingNeed,
+      consultClearBenefit,
+      consultMentionLossAvoidance,
+      closedService: Number(dto.closedService) || 0,
+      personalRevenue,
+      nextFollowRequired: Number(dto.nextFollowRequired) || 0,
+      nextFollowStep: String(dto.nextFollowStep || '').trim(),
+      nextFollowSchedule: dto.nextFollowSchedule
+        ? String(dto.nextFollowSchedule).slice(0, 10)
+        : null,
+    });
+
+    const saved = await this.dailyCoachingCustomersRepository.save(created);
+    return {
+      id: saved.id,
+      logDate: saved.logDate,
+      coachingForm: saved.coachingForm || 'coaching_form_1',
+      salesPlan: Number(saved.salesPlan) || 0,
+      customerName: saved.customerName || '',
+      ward: saved.ward || '',
+      customerAddress: saved.customerAddress || '',
+      oldReferral: Number(saved.oldReferral) || 0,
+      customerFollowUp: Number(saved.customerFollowUp) || 0,
+      noEarlyQuote: Number(saved.noEarlyQuote) || 0,
+      consultStandard: Number(saved.consultStandard) || 0,
+      consultEnoughLayers: Number(saved.consultEnoughLayers) || 0,
+      consultSolutionMatchingNeed: Number(saved.consultSolutionMatchingNeed) || 0,
+      consultClearBenefit: Number(saved.consultClearBenefit) || 0,
+      consultMentionLossAvoidance: Number(saved.consultMentionLossAvoidance) || 0,
+      closedService: Number(saved.closedService) || 0,
+      personalRevenue: String(saved.personalRevenue || '0'),
+      nextFollowRequired: Number(saved.nextFollowRequired) || 0,
+      nextFollowStep: saved.nextFollowStep || '',
+      nextFollowSchedule: saved.nextFollowSchedule || '',
+      createdAt: saved.createdAt,
+      updatedAt: saved.updatedAt,
+    };
+  }
+
+  async importDailyCoachingCustomersFromExcel(
+    currentUser: any,
+    file: any,
+    logDate?: string,
+    coachingForm?: string,
+  ) {
+    if (!file?.buffer) {
+      throw new BadRequestException('Vui lòng chọn file Excel để import');
+    }
+
+    const date = this.resolveLogDate(logDate);
+    const normalizedCoachingForm = this.normalizeCoachingForm(coachingForm);
+    validateActionTimeForDate(date, 'Import form coaching khách hàng');
+    const workbook = XLSX.read(file.buffer, { type: 'buffer' });
+    const sheetName = workbook.SheetNames[0];
+    if (!sheetName) {
+      throw new BadRequestException('File Excel không có dữ liệu');
+    }
+
+    const sheet = workbook.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false }) as any[];
+    if (!Array.isArray(rows) || rows.length === 0) {
+      throw new BadRequestException('File Excel trống');
+    }
+
+    let imported = 0;
+    let skipped = 0;
+    const entities: DailyCoachingCustomer[] = [];
+    const wards = await this.catalogItemsRepository.find({
+      where: { category: 'WARD', isActive: true },
+      order: { name: 'ASC' },
+    });
+    const wardNameMap = new Map(wards.map((item) => [String(item.name || '').trim().toLowerCase(), item]));
+    const wardCodeMap = new Map(wards.map((item) => [String(item.code || '').trim().toLowerCase(), item]));
+
+    for (const row of rows) {
+      const customerName = this.getCoachingExcelValue(row, [
+        'Tên khách hàng',
+        'Tên khách hàng tiếp xúc/tư vấn',
+        'Ten khach hang',
+      ]);
+      if (!customerName) {
+        skipped += 1;
+        continue;
+      }
+
+      const wardCode = this.getCoachingExcelValue(row, ['Mã phường/xã', 'Ma phuong/xa']);
+      const wardText = this.getCoachingExcelValue(row, ['Phường/Xã', 'Phuong/Xa']);
+      const wardByCode = wardCode ? wardCodeMap.get(wardCode.toLowerCase()) : undefined;
+      const wardByName = wardText ? wardNameMap.get(wardText.toLowerCase()) : undefined;
+      const resolvedWard = wardByCode?.name || wardByName?.name || '';
+      const consultEnoughLayers = this.parseCoachingFlag(
+        this.getCoachingExcelValue(row, ['Số cuộc tư vấn có đủ 3 lớp', 'So cuoc tu van co du 3 lop']),
+      );
+      const consultSolutionMatchingNeed = this.parseCoachingFlag(
+        this.getCoachingExcelValue(row, [
+          'Số cuộc tư vấn có gán giải pháp với nhu cầu',
+          'So cuoc tu van co gan giai phap voi nhu cau',
+        ]),
+      );
+      const consultClearBenefit = this.parseCoachingFlag(
+        this.getCoachingExcelValue(row, [
+          'Số cuộc tư vấn có nói rõ lợi ích',
+          'So cuoc tu van co noi ro loi ich',
+        ]),
+      );
+      const consultMentionLossAvoidance = this.parseCoachingFlag(
+        this.getCoachingExcelValue(row, [
+          'Số cuộc tư vấn có nhắc thiệt hại tránh được',
+          'So cuoc tu van co nhac thiet hai tranh duoc',
+        ]),
+      );
+      const explicitConsultStandard = this.parseCoachingFlag(
+        this.getCoachingExcelValue(row, ['Cuộc tư vấn đủ chuẩn', 'Cuoc tu van du chuan']),
+      );
+      const consultStandard =
+        explicitConsultStandard ||
+        (consultEnoughLayers &&
+        consultSolutionMatchingNeed &&
+        consultClearBenefit &&
+        consultMentionLossAvoidance
+          ? 1
+          : 0);
+
+      const entity = this.dailyCoachingCustomersRepository.create({
+        userId: currentUser.id,
+        logDate: date,
+        coachingForm: normalizedCoachingForm,
+        salesPlan: this.parseCoachingFlag(
+          this.getCoachingExcelValue(row, ['Kế hoạch bán hàng', 'Ke hoach ban hang']),
+        ),
+        customerName,
+        ward: resolvedWard,
+        customerAddress: this.getCoachingExcelValue(row, [
+          'Địa chỉ',
+          'Địa chỉ khách hàng tiếp xúc/tư vấn',
+          'Dia chi',
+        ]),
+        oldReferral: this.parseCoachingFlag(
+          this.getCoachingExcelValue(row, ['Khách cũ giới thiệu', 'Khach cu gioi thieu']),
+        ),
+        customerFollowUp: this.parseCoachingFlag(
+          this.getCoachingExcelValue(row, ['Khách follow up', 'Khach follow up']),
+        ),
+        noEarlyQuote: this.parseCoachingFlag(
+          this.getCoachingExcelValue(row, ['Không báo giá sớm', 'Khong bao gia som']),
+        ),
+        consultEnoughLayers,
+        consultSolutionMatchingNeed,
+        consultClearBenefit,
+        consultMentionLossAvoidance,
+        consultStandard,
+        closedService: this.parseCoachingFlag(
+          this.getCoachingExcelValue(row, ['Chốt dịch vụ', 'Chot dich vu']),
+        ),
+        personalRevenue: this.normalizePersonalRevenue(
+          this.getCoachingExcelValue(row, ['Doanh thu cá nhân', 'Doanh thu cá nhân (VND)', 'Doanh thu cá nhân (Ngàn đồng)', 'Doanh thu'])
+        ),
+        nextFollowRequired: this.parseCoachingFlag(
+          this.getCoachingExcelValue(row, [
+            'Khách follow up tiếp theo',
+            'Khach follow up tiep theo',
+            'Khách follow tiếp theo/ Bước tiếp theo',
+            'Khach follow tiep theo/ Buoc tiep theo',
+          ]),
+        ),
+        nextFollowStep: this.getCoachingExcelValue(row, [
+          'Bước tiếp theo',
+          'Buoc tiep theo',
+          'Ghi chú chi tiết bước tiếp theo',
+          'Khách follow tiếp theo/ Bước tiếp theo',
+          'Khach follow tiep theo/ Buoc tiep theo',
+        ]),
+        nextFollowSchedule: this.normalizeCoachingScheduleDate(
+          this.getCoachingExcelValue(row, ['Lịch hẹn follow tiếp theo', 'Lich hen follow tiep theo']),
+        ),
+      });
+
+      entities.push(entity);
+      imported += 1;
+    }
+
+    if (entities.length > 0) {
+      await this.dailyCoachingCustomersRepository.save(entities);
+    }
+
+    return {
+      logDate: date,
+      coachingForm: normalizedCoachingForm,
+      total: rows.length,
+      imported,
+      skipped,
+      message: `Import coaching thành công cho ngày ${date}`,
+    };
+  }
+
+  async getDailyCoachingCustomersImportTemplateFile(coachingForm?: string) {
+    const wards = await this.catalogItemsRepository.find({
+      where: { category: 'WARD', isActive: true },
+      order: { name: 'ASC' },
+    });
+    const workbook = new ExcelJS.Workbook();
+
+    const templateSheet = workbook.addWorksheet('Template');
+    const isPhase2Template = String(coachingForm || '').trim() === 'coaching_form_2';
+    const headers = isPhase2Template
+      ? [
+          'Kế hoạch bán hàng',
+          'Tên khách hàng tiếp xúc/tư vấn',
+          'Địa chỉ khách hàng tiếp xúc/tư vấn',
+          'Khách cũ giới thiệu',
+          'Khách follow up',
+          'Không báo giá sớm',
+          'Số cuộc tư vấn có đủ 3 lớp',
+          'Số cuộc tư vấn có gán giải pháp với nhu cầu',
+          'Số cuộc tư vấn có nói rõ lợi ích',
+          'Số cuộc tư vấn có nhắc thiệt hại tránh được',
+          'Chốt dịch vụ',
+          'Doanh thu cá nhân (Ngàn đồng)',
+          'Khách follow tiếp theo/ Bước tiếp theo',
+          'Lịch hẹn follow tiếp theo',
+          'Phường/Xã',
+        ]
+      : [
+          'Kế hoạch bán hàng',
+          'Tên khách hàng tiếp xúc/tư vấn',
+          'Địa chỉ khách hàng tiếp xúc/tư vấn',
+          'Khách cũ giới thiệu',
+          'Khách follow up',
+          'Không báo giá sớm',
+          'Cuộc tư vấn đủ chuẩn',
+          'Chốt dịch vụ',
+          'Doanh thu cá nhân (Ngàn đồng)',
+          'Khách follow up tiếp theo/ Bước tiếp theo',
+          'Lịch hẹn follow tiếp theo',
+        ];
+    templateSheet.addRow(headers);
+    templateSheet.addRow(
+      isPhase2Template
+        ? [
+            'Có',
+            'Nguyen Van A',
+            '123 Đường ABC',
+            'Có',
+            'Đúng',
+            'Đúng',
+            'Đúng',
+            'Đúng',
+            'Đúng',
+            'Sai',
+            'Có',
+            2500,
+            'Cần follow / Gọi xác nhận lắp đặt',
+            '2026-05-30',
+            wards[0]?.name || '',
+          ]
+        : [
+            'Có',
+            'Nguyen Van A',
+            '123 Đường ABC',
+            'Có',
+            'Đúng',
+            'Đúng',
+            'Đúng',
+            'Có',
+            2500,
+            'Cần follow / Gọi xác nhận lắp đặt',
+            '2026-05-30',
+          ],
+    );
+
+    templateSheet.getRow(1).font = { bold: true };
+    templateSheet.columns = headers.map((header) => ({ header, width: 24 }));
+
+    const wardSheet = workbook.addWorksheet('DanhMucPhuongXa');
+    wardSheet.addRow(['Mã phường/xã', 'Tên phường/xã']);
+    for (const ward of wards) {
+      wardSheet.addRow([ward.code || '', ward.name || '']);
+    }
+    wardSheet.getRow(1).font = { bold: true };
+    wardSheet.columns = [
+      { header: 'Mã phường/xã', width: 24 },
+      { header: 'Tên phường/xã', width: 30 },
+    ];
+
+    const guideSheet = workbook.addWorksheet('HuongDan');
+    guideSheet.addRow(['COT', 'HUONG_DAN']);
+    (isPhase2Template
+      ? [
+          ['Kế hoạch bán hàng', 'Chọn Có=1 hoặc Không=0'],
+          ['Tên khách hàng tiếp xúc/tư vấn', 'Bắt buộc'],
+          ['Địa chỉ khách hàng tiếp xúc/tư vấn', 'Tên đường, phường (xã), số nhà/tel...'],
+          ['Khách cũ giới thiệu', 'Được KH cũ giới thiệu=1, không được giới thiệu=0'],
+          ['Khách follow up', 'Đúng=1, sai=0'],
+          ['Không báo giá sớm', 'Đúng=1, sai=0'],
+          ['Số cuộc tư vấn có đủ 3 lớp', 'Đúng=1, sai=0'],
+          ['Số cuộc tư vấn có gán giải pháp với nhu cầu', 'Đúng=1, sai=0'],
+          ['Số cuộc tư vấn có nói rõ lợi ích', 'Đúng=1, sai=0'],
+          ['Số cuộc tư vấn có nhắc thiệt hại tránh được', 'Đúng=1, sai=0'],
+          ['Chốt dịch vụ', 'Lắp đặt/hòa mạng=1, chưa lắp đặt/HM=0'],
+          ['Doanh thu cá nhân (Ngàn đồng)', 'Số tiền ngàn đồng, ví dụ 2500 = 2.500.000 VND'],
+          ['Khách follow tiếp theo/ Bước tiếp theo', 'Có follow=1, không cần follow=0 hoặc ghi bước tiếp theo'],
+          ['Lịch hẹn follow tiếp theo', 'dd/mm/yyyy hoặc yyyy-mm-dd'],
+          ['Phường/Xã', 'Chọn từ dropdown theo sheet DanhMucPhuongXa'],
+        ]
+      : [
+          ['Kế hoạch bán hàng', 'Có danh sách KH, phân loại KH, chuẩn bị câu hỏi... (Có=1, không=0)'],
+          ['Tên khách hàng tiếp xúc/tư vấn', 'Bắt buộc'],
+          ['Địa chỉ khách hàng tiếp xúc/tư vấn', 'Tên đường, phường (xã), số nhà/tel...'],
+          ['Khách cũ giới thiệu', '(Được KH cũ giới thiệu=1, không được giới thiệu=0)'],
+          ['Khách follow up', 'Tư vấn lại KH tiềm năng đã được tư vấn chưa thành công (Đúng=1, sai=0)'],
+          ['Không báo giá sớm', '(Đúng=1, sai=0)'],
+          ['Cuộc tư vấn đủ chuẩn', 'Ko giới thiệu gói, báo giá sớm, hỏi khách có mua không... (Đúng=1, sai=0)'],
+          ['Chốt dịch vụ', '(Lắp đặt/hòa mạng=1, chưa lắp đặt HM=0)'],
+          ['Doanh thu cá nhân (Ngàn đồng)', 'Số tiền ngàn đồng, ví dụ 2500 = 2.500.000 VND'],
+          ['Khách follow up tiếp theo/ Bước tiếp theo', '(Có follow=1, không cần follow=0) / Bước tiếp theo'],
+          ['Lịch hẹn follow tiếp theo', 'Lần follow...(1): dd/mm/yyyy: Gọi lại/Tư vấn trực tiếp/nhờ giới thiệu/...'],
+        ]
+    ).forEach((row) => guideSheet.addRow(row));
+    guideSheet.getRow(1).font = { bold: true };
+    guideSheet.columns = [
+      { header: 'COT', width: 34 },
+      { header: 'HUONG_DAN', width: 80 },
+    ];
+
+    const lastWardRow = Math.max(2, wards.length + 1);
+    const wardNameFormula = `'DanhMucPhuongXa'!$B$2:$B$${lastWardRow}`;
+    const wardColumn = isPhase2Template ? 'O' : '';
+    const salesPlanColumn = 'A';
+    const oldReferralColumn = 'D';
+    const customerFollowColumn = 'E';
+    const noEarlyQuoteColumn = 'F';
+    const consultEnoughLayersColumn = isPhase2Template ? 'G' : '';
+    const consultSolutionMatchingNeedColumn = isPhase2Template ? 'H' : '';
+    const consultClearBenefitColumn = isPhase2Template ? 'I' : '';
+    const consultMentionLossAvoidanceColumn = isPhase2Template ? 'J' : '';
+    const consultStandardColumn = isPhase2Template ? '' : 'G';
+    const closedServiceColumn = isPhase2Template ? 'K' : 'H';
+    const followColumn = isPhase2Template ? 'M' : 'J';
+    for (let row = 2; row <= 1000; row += 1) {
+      if (wardColumn) {
+        templateSheet.getCell(`${wardColumn}${row}`).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: [wardNameFormula],
+          showErrorMessage: true,
+        };
+      }
+
+      templateSheet.getCell(`${salesPlanColumn}${row}`).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: ['"Có,Không"'],
+        showErrorMessage: true,
+      };
+      templateSheet.getCell(`${oldReferralColumn}${row}`).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: ['"Có,Không"'],
+        showErrorMessage: true,
+      };
+      templateSheet.getCell(`${customerFollowColumn}${row}`).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: ['"Đúng,Sai"'],
+        showErrorMessage: true,
+      };
+      templateSheet.getCell(`${noEarlyQuoteColumn}${row}`).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: ['"Đúng,Sai"'],
+        showErrorMessage: true,
+      };
+      if (consultEnoughLayersColumn) {
+        templateSheet.getCell(`${consultEnoughLayersColumn}${row}`).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: ['"Đúng,Sai"'],
+          showErrorMessage: true,
+        };
+      }
+      if (consultSolutionMatchingNeedColumn) {
+        templateSheet.getCell(`${consultSolutionMatchingNeedColumn}${row}`).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: ['"Đúng,Sai"'],
+          showErrorMessage: true,
+        };
+      }
+      if (consultClearBenefitColumn) {
+        templateSheet.getCell(`${consultClearBenefitColumn}${row}`).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: ['"Đúng,Sai"'],
+          showErrorMessage: true,
+        };
+      }
+      if (consultMentionLossAvoidanceColumn) {
+        templateSheet.getCell(`${consultMentionLossAvoidanceColumn}${row}`).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: ['"Đúng,Sai"'],
+          showErrorMessage: true,
+        };
+      }
+      if (consultStandardColumn) {
+        templateSheet.getCell(`${consultStandardColumn}${row}`).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: ['"Đúng,Sai"'],
+          showErrorMessage: true,
+        };
+      }
+      templateSheet.getCell(`${closedServiceColumn}${row}`).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: ['"Có,Không"'],
+        showErrorMessage: true,
+      };
+      templateSheet.getCell(`${followColumn}${row}`).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: ['"Cần follow,Không"'],
+        showErrorMessage: true,
+      };
+    }
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    return {
+      buffer: Buffer.from(buffer),
+      fileName: 'mau-import-coaching-khach-hang.xlsx',
+    };
+  }
+
+  private formatManagerCoachingLog(row: any) {
+    return {
+      id: row.id,
+      coachingTime: row.coachingTime,
+      coachingContent: row.coachingContent || '',
+      contentToImprove: row.contentToImprove || '',
+      keepTnc: Number(row.keepTnc) || 0,
+      keepTncLabel: Number(row.keepTnc) === 1 ? 'Có giữ chuẩn' : 'Chưa giữ chuẩn',
+      evaluationResult: Number(row.evaluationResult) || 0,
+      evaluationResultLabel: Number(row.evaluationResult) === 1 ? 'Đạt' : 'Chưa đạt',
+      coachUserId: row.coachUserId,
+      coachName: row.coachName || '',
+      coachedUserId: row.coachedUserId,
+      coachedUserName: row.coachedUserName || '',
+      coachedUsername: row.coachedUsername || '',
+      coachedEmployeeCode: row.coachedEmployeeCode || '',
+      coachedUnitId: row.coachedUnitId || '',
+      coachedUnitName: row.coachedUnitName || '',
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  private async getManageableEmployeeForCoaching(currentUser: any, coachedUserId: string) {
+    const employee = await this.usersRepository.findOne({
+      where: { id: coachedUserId },
+      relations: ['unit'],
+    });
+
+    if (!employee || employee.role !== Role.EMPLOYEE) {
+      throw new BadRequestException('Không tìm thấy nhân viên được coaching');
+    }
+
+    if (currentUser.role === Role.MANAGER && employee.unitId !== currentUser.unitId) {
+      throw new ForbiddenException('Chỉ được coaching nhân viên trong cùng đơn vị');
+    }
+
+    if (employee.id === currentUser.id) {
+      throw new BadRequestException('Người được coaching không được trùng người coach');
+    }
+
+    return employee;
+  }
+
+  private async getManagerCoachingLogById(logId: string) {
+    const row = await this.managerCoachingLogsRepository
+      .createQueryBuilder('log')
+      .leftJoin('log.coachUser', 'coach')
+      .leftJoin('log.coachedUser', 'coached')
+      .leftJoin('coached.unit', 'unit')
+      .select([
+        'log.id AS id',
+        'log.coachingTime AS "coachingTime"',
+        'log.coachingContent AS "coachingContent"',
+        'log.contentToImprove AS "contentToImprove"',
+        'log.keepTnc AS "keepTnc"',
+        'log.evaluationResult AS "evaluationResult"',
+        'log.coachUserId AS "coachUserId"',
+        'log.coachedUserId AS "coachedUserId"',
+        'log.createdAt AS "createdAt"',
+        'log.updatedAt AS "updatedAt"',
+        'coach.fullName AS "coachName"',
+        'coached.fullName AS "coachedUserName"',
+        'coached.username AS "coachedUsername"',
+        'coached.employeeCode AS "coachedEmployeeCode"',
+        'coached.unitId AS "coachedUnitId"',
+        'unit.name AS "coachedUnitName"',
+      ])
+      .where('log.id = :logId', { logId })
+      .getRawOne();
+
+    return row ? this.formatManagerCoachingLog(row) : null;
+  }
+
+  private async assertManagerCoachingLogAccess(logId: string, currentUser: any) {
+    const log = await this.managerCoachingLogsRepository.findOne({ where: { id: logId } });
+    if (!log) {
+      throw new NotFoundException('Không tìm thấy phiếu coaching');
+    }
+    if (currentUser.role === Role.MANAGER && log.coachUserId !== currentUser.id) {
+      throw new ForbiddenException('Chỉ được thao tác trên phiếu coaching do bạn tạo');
+    }
+    return log;
+  }
+
+  async getManagerCoachingLogs(
+    currentUser: any,
+    filters: { fromDate?: string; toDate?: string; coachedUserId?: string; keyword?: string },
+  ) {
+    const fromDate = this.normalizeCoachingDateFilter(filters?.fromDate);
+    const toDate = this.normalizeCoachingDateFilter(filters?.toDate);
+    const coachedUserId = String(filters?.coachedUserId || '').trim();
+    const keyword = String(filters?.keyword || '').trim().toLowerCase();
+
+    const qb = this.managerCoachingLogsRepository
+      .createQueryBuilder('log')
+      .leftJoin('log.coachUser', 'coach')
+      .leftJoin('log.coachedUser', 'coached')
+      .leftJoin('coached.unit', 'unit')
+      .select([
+        'log.id AS id',
+        'log.coachingTime AS "coachingTime"',
+        'log.coachingContent AS "coachingContent"',
+        'log.contentToImprove AS "contentToImprove"',
+        'log.keepTnc AS "keepTnc"',
+        'log.evaluationResult AS "evaluationResult"',
+        'log.coachUserId AS "coachUserId"',
+        'log.coachedUserId AS "coachedUserId"',
+        'log.createdAt AS "createdAt"',
+        'log.updatedAt AS "updatedAt"',
+        'coach.fullName AS "coachName"',
+        'coached.fullName AS "coachedUserName"',
+        'coached.username AS "coachedUsername"',
+        'coached.employeeCode AS "coachedEmployeeCode"',
+        'coached.unitId AS "coachedUnitId"',
+        'unit.name AS "coachedUnitName"',
+      ]);
+
+    if (currentUser.role === Role.MANAGER) {
+      qb.andWhere('log.coachUserId = :coachUserId', { coachUserId: currentUser.id });
+    }
+
+    if (fromDate) {
+      qb.andWhere('DATE(log.coachingTime) >= :fromDate', { fromDate });
+    }
+    if (toDate) {
+      qb.andWhere('DATE(log.coachingTime) <= :toDate', { toDate });
+    }
+    if (coachedUserId) {
+      qb.andWhere('log.coachedUserId = :coachedUserId', { coachedUserId });
+    }
+    if (keyword) {
+      qb.andWhere(
+        '(LOWER(coached.fullName) LIKE :keyword OR LOWER(coached.username) LIKE :keyword OR LOWER(log.coachingContent) LIKE :keyword OR LOWER(log.contentToImprove) LIKE :keyword)',
+        { keyword: `%${keyword}%` },
+      );
+    }
+
+    const rows = await qb
+      .orderBy('log.coachingTime', 'DESC')
+      .addOrderBy('log.createdAt', 'DESC')
+      .getRawMany();
+
+    return rows.map((row) => this.formatManagerCoachingLog(row));
+  }
+
+  async getManagerCoachingEmployees(currentUser: any) {
+    const qb = this.usersRepository
+      .createQueryBuilder('user')
+      .leftJoin('user.unit', 'unit')
+      .select([
+        'user.id AS id',
+        'user.fullName AS "fullName"',
+        'user.username AS username',
+        'user.employeeCode AS "employeeCode"',
+        'user.unitId AS "unitId"',
+        'unit.name AS "unitName"',
+      ])
+      .where('user.role = :role', { role: Role.EMPLOYEE })
+      .andWhere('user.id <> :currentUserId', { currentUserId: currentUser.id });
+
+    if (currentUser.role === Role.MANAGER) {
+      qb.andWhere('user.unitId = :unitId', { unitId: currentUser.unitId });
+    }
+
+    const rows = await qb.orderBy('user.fullName', 'ASC').addOrderBy('user.username', 'ASC').getRawMany();
+    return rows.map((row) => ({
+      id: row.id,
+      fullName: row.fullName || '',
+      username: row.username || '',
+      employeeCode: row.employeeCode || '',
+      unitId: row.unitId || '',
+      unitName: row.unitName || '',
+    }));
+  }
+
+  async createManagerCoachingLog(currentUser: any, dto: CreateManagerCoachingLogDto) {
+    await this.getManageableEmployeeForCoaching(currentUser, dto.coachedUserId);
+
+    const log = this.managerCoachingLogsRepository.create({
+      coachUserId: currentUser.id,
+      coachedUserId: dto.coachedUserId,
+      coachingTime: new Date(dto.coachingTime),
+      coachingContent: dto.coachingContent.trim(),
+      contentToImprove: dto.contentToImprove.trim(),
+      keepTnc: Number(dto.keepTnc) || 0,
+      evaluationResult: Number(dto.evaluationResult) || 0,
+    });
+
+    const saved = await this.managerCoachingLogsRepository.save(log);
+    return this.getManagerCoachingLogById(saved.id);
+  }
+
+  async updateManagerCoachingLog(
+    logId: string,
+    currentUser: any,
+    dto: UpdateManagerCoachingLogDto,
+  ) {
+    const target = await this.assertManagerCoachingLogAccess(logId, currentUser);
+
+    if (dto.coachedUserId) {
+      await this.getManageableEmployeeForCoaching(currentUser, dto.coachedUserId);
+      target.coachedUserId = dto.coachedUserId;
+    }
+    if (dto.coachingTime) {
+      target.coachingTime = new Date(dto.coachingTime);
+    }
+    if (dto.coachingContent !== undefined) {
+      target.coachingContent = dto.coachingContent.trim();
+    }
+    if (dto.contentToImprove !== undefined) {
+      target.contentToImprove = dto.contentToImprove.trim();
+    }
+    if (dto.keepTnc !== undefined) {
+      target.keepTnc = Number(dto.keepTnc) || 0;
+    }
+    if (dto.evaluationResult !== undefined) {
+      target.evaluationResult = Number(dto.evaluationResult) || 0;
+    }
+
+    await this.managerCoachingLogsRepository.save(target);
+    return this.getManagerCoachingLogById(target.id);
+  }
+
+  async deleteManagerCoachingLog(logId: string, currentUser: any) {
+    const target = await this.assertManagerCoachingLogAccess(logId, currentUser);
+    await this.managerCoachingLogsRepository.remove(target);
+    return { success: true };
+  }
+
+  async exportManagerCoachingLogsFile(
+    currentUser: any,
+    filters: { fromDate?: string; toDate?: string; coachedUserId?: string; keyword?: string },
+  ) {
+    const rows = await this.getManagerCoachingLogs(currentUser, filters);
+    const excelRows = rows.map((item) => ({
+      'Thời gian coaching': String(item.coachingTime || '').replace('T', ' ').slice(0, 16),
+      'Người coach': item.coachName || '',
+      'Người được coaching': item.coachedUserName || '',
+      'Nội dung coach': item.coachingContent || '',
+      'Sửa nội dung gì': item.contentToImprove || '',
+      'Giữ chuẩn TNC': item.keepTncLabel,
+      'Đánh giá người được coaching': item.evaluationResultLabel,
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(excelRows);
+    worksheet['!cols'] = [
+      { wch: 20 },
+      { wch: 24 },
+      { wch: 28 },
+      { wch: 40 },
+      { wch: 40 },
+      { wch: 20 },
+      { wch: 28 },
+    ];
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Coaching');
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    const suffix = this.normalizeCoachingDateFilter(filters?.fromDate) || 'all';
+
+    return {
+      buffer,
+      fileName: `phieu-coaching-quan-ly-${suffix}.xlsx`,
+    };
   }
 
   async submitLog(user: any, dto: SubmitLogDto) {
@@ -1080,7 +1950,9 @@ export class BehaviorService implements OnModuleInit {
       endDate: item.endDate,
       sortOrder: item.sortOrder,
       isActive: item.isActive,
-      allowedForms: item.allowedForms || [],
+      allowedForms: (item.allowedForms || []).filter(
+        (form) => !COACHING_FORM_IDS.includes(String(form || '').trim()),
+      ),
     }));
   }
 
@@ -1179,9 +2051,15 @@ export class BehaviorService implements OnModuleInit {
   }
 
   async getJourneyPhaseConfigsForAdmin() {
-    return this.journeyPhaseConfigsRepository.find({
+    const rows = await this.journeyPhaseConfigsRepository.find({
       order: { sortOrder: 'ASC', startDate: 'ASC' },
     });
+    return rows.map((item) => ({
+      ...item,
+      allowedForms: (item.allowedForms || [])
+        .map((f) => String(f || '').trim())
+        .filter((f) => Boolean(f) && !COACHING_FORM_IDS.includes(f)),
+    }));
   }
 
   async upsertJourneyPhaseConfig(id: string | null, dto: UpsertJourneyPhaseConfigDto) {
@@ -1199,9 +2077,742 @@ export class BehaviorService implements OnModuleInit {
     item.sortOrder = Number(dto.sortOrder || 1);
     item.isActive = dto.isActive !== false;
     if (dto.allowedForms) {
-      item.allowedForms = dto.allowedForms;
+      item.allowedForms = dto.allowedForms
+        .map((f) => String(f || '').trim())
+        .filter((f) => Boolean(f) && !COACHING_FORM_IDS.includes(f));
     }
     return this.journeyPhaseConfigsRepository.save(item);
+  }
+
+  async getCoachingPhaseConfigs() {
+    const rows = await this.coachingPhaseConfigsRepository.find({
+      where: { isActive: true },
+      order: { sortOrder: 'ASC', startDate: 'ASC' },
+    });
+    return rows.map((item) => ({
+      id: item.id,
+      phaseCode: item.phaseCode,
+      phaseName: item.phaseName,
+      startDate: item.startDate,
+      endDate: item.endDate,
+      sortOrder: item.sortOrder,
+      isActive: item.isActive,
+      allowedCoachingForms: (() => {
+        const forms = (item.allowedForms || [])
+          .map((form) => String(form || '').trim())
+          .filter((form) => COACHING_FORM_IDS.includes(form));
+        if (forms.length > 0) {
+          return forms;
+        }
+        const phaseCode = String(item.phaseCode || '').toUpperCase();
+        return COACHING_PHASE_FORM_MAP[phaseCode] || ['coaching_form_1'];
+      })(),
+    }));
+  }
+
+  async getCoachingPhaseConfigsForAdmin() {
+    const rows = await this.coachingPhaseConfigsRepository.find({
+      order: { sortOrder: 'ASC', startDate: 'ASC' },
+    });
+    return rows.map((item) => ({
+      ...item,
+      allowedCoachingForms: (() => {
+        const forms = (item.allowedForms || [])
+          .map((form) => String(form || '').trim())
+          .filter((form) => COACHING_FORM_IDS.includes(form));
+        if (forms.length > 0) {
+          return forms;
+        }
+        const phaseCode = String(item.phaseCode || '').toUpperCase();
+        return COACHING_PHASE_FORM_MAP[phaseCode] || ['coaching_form_1'];
+      })(),
+    }));
+  }
+
+  async upsertCoachingPhaseConfig(id: string | null, dto: UpsertCoachingPhaseConfigDto) {
+    if (dto.startDate && dto.endDate && new Date(dto.startDate) > new Date(dto.endDate)) {
+      throw new BadRequestException('Ngày bắt đầu phải nhỏ hơn hoặc bằng ngày kết thúc');
+    }
+    let item = id ? await this.coachingPhaseConfigsRepository.findOne(id) : null;
+    if (!item) {
+      item = this.coachingPhaseConfigsRepository.create();
+    }
+    item.phaseCode = String(dto.phaseCode || '').trim().toUpperCase();
+    item.phaseName = String(dto.phaseName || '').trim();
+    item.startDate = dto.startDate || null;
+    item.endDate = dto.endDate || null;
+    item.sortOrder = Number(dto.sortOrder || 1);
+    item.isActive = dto.isActive !== false;
+    if (dto.allowedCoachingForms) {
+      item.allowedForms = dto.allowedCoachingForms
+        .map((f) => String(f || '').trim())
+        .filter((f) => COACHING_FORM_IDS.includes(f));
+    }
+    return this.coachingPhaseConfigsRepository.save(item);
+  }
+
+  async getCoachingProvincialData(filters: { fromDate?: string; toDate?: string; unitId?: string }) {
+    const formatDateYmd = (value: any) => {
+      if (!value) return '';
+      if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        const y = value.getFullYear();
+        const m = String(value.getMonth() + 1).padStart(2, '0');
+        const d = String(value.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      }
+      const raw = String(value).trim();
+      const isoMatch = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+      if (isoMatch) return isoMatch[1];
+      const parsed = new Date(raw);
+      if (!Number.isNaN(parsed.getTime())) {
+        const y = parsed.getFullYear();
+        const m = String(parsed.getMonth() + 1).padStart(2, '0');
+        const d = String(parsed.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      }
+      return raw;
+    };
+
+    const fromDate = filters.fromDate || new Date().toISOString().slice(0, 10);
+    const toDate = filters.toDate || fromDate;
+    const cutoffHour = await this.getCoachingReportCutoffHour();
+
+    const qb = this.dailyCoachingCustomersRepository
+      .createQueryBuilder('c')
+      .leftJoin('c.user', 'u')
+      .leftJoin('u.unit', 'unit')
+      .select([
+        'c.logDate AS "logDate"',
+        'u.employeeCode AS "employeeCode"',
+        'u.fullName AS "fullName"',
+        'c.salesPlan AS "salesPlan"',
+        'c.customerName AS "customerName"',
+        'c.customerAddress AS "customerAddress"',
+        'c.ward AS "ward"',
+        'c.oldReferral AS "oldReferral"',
+        'c.customerFollowUp AS "customerFollowUp"',
+        'c.noEarlyQuote AS "noEarlyQuote"',
+        'c.consultStandard AS "consultStandard"',
+        'c.closedService AS "closedService"',
+        'c.personalRevenue AS "personalRevenue"',
+        'c.nextFollowRequired AS "nextFollowRequired"',
+        'c.nextFollowStep AS "nextFollowStep"',
+        'c.nextFollowSchedule AS "nextFollowSchedule"',
+        'unit.name AS "unitName"',
+      ])
+      .where('c.logDate >= :fromDate', { fromDate })
+      .andWhere('c.logDate <= :toDate', { toDate })
+      .andWhere('c.coachingForm = :coachingForm', { coachingForm: 'coaching_form_1' });
+
+    if (filters.unitId) {
+      qb.andWhere('u.unitId = :unitId', { unitId: filters.unitId });
+    }
+
+    qb.orderBy('c.logDate', 'ASC')
+      .addOrderBy('u.fullName', 'ASC')
+      .addOrderBy('c.createdAt', 'ASC');
+
+    const rows = await qb.getRawMany();
+    return {
+      cutoffHour,
+      rows: rows.map((row, idx) => ({
+      stt: idx + 1,
+      logDate: formatDateYmd(row.logDate),
+      employeeCode: row.employeeCode || '',
+      fullName: row.fullName || '',
+      salesPlan: Number(row.salesPlan) || 0,
+      customerName: row.customerName || '',
+      customerAddress: [row.customerAddress, row.ward].filter(Boolean).join(', ') || '',
+      oldReferral: Number(row.oldReferral) || 0,
+      customerFollowUp: Number(row.customerFollowUp) || 0,
+      noEarlyQuote: Number(row.noEarlyQuote) || 0,
+      consultStandard: Number(row.consultStandard) || 0,
+      closedService: Number(row.closedService) || 0,
+      personalRevenue: row.personalRevenue ? Number(row.personalRevenue) : 0,
+      nextFollowRequired: Number(row.nextFollowRequired) || 0,
+      nextFollowSchedule: formatDateYmd(row.nextFollowSchedule),
+      unitName: row.unitName || '',
+      })),
+    };
+  }
+
+  async exportCoachingProvincialFile(filters: { fromDate?: string; toDate?: string; unitId?: string }) {
+    const fromDate = filters.fromDate || new Date().toISOString().slice(0, 10);
+    const coachingData = await this.getCoachingProvincialData(filters);
+    const rows = coachingData.rows || [];
+    const cutoffHour = Number(coachingData.cutoffHour || 7);
+
+    const headerTitles = [
+      'TT',
+      'Ngày báo cáo',
+      'Đơn vị',
+      'Mã NV',
+      'Họ và tên NV',
+      'Kế hoạch bán hàng',
+      'Tên KH tiếp xúc/tư vấn',
+      'Địa chỉ KH',
+      'Khách cũ giới thiệu',
+      'Khách follow up',
+      'Không báo giá sớm',
+      'Tư vấn đủ chuẩn',
+      'Chốt dịch vụ',
+      'Doanh thu (Ngàn đồng)',
+      'Follow tiếp theo',
+      'Lịch hẹn follow',
+    ];
+
+    const headerIndexes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+
+    const sumField = (items: any[], field: string) =>
+      items.reduce((acc, row) => acc + (Number(row[field]) || 0), 0);
+
+    const sheetData: any[][] = [
+      [`Mốc cắt ngày thống kê: ${String(cutoffHour).padStart(2, '0')}:00`],
+      headerTitles,
+      headerIndexes,
+    ];
+    const merges: any[] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 15 } }];
+
+    let group: any[] = [];
+    let lastKey = '';
+
+    const pushGroup = () => {
+      if (group.length === 0) return;
+
+      group.forEach((row) => {
+        sheetData.push([
+          row.stt,
+          row.logDate,
+          row.unitName,
+          row.employeeCode,
+          row.fullName,
+          row.salesPlan,
+          row.customerName,
+          row.customerAddress,
+          row.oldReferral,
+          row.customerFollowUp,
+          row.noEarlyQuote,
+          row.consultStandard,
+          row.closedService,
+          row.personalRevenue,
+          row.nextFollowRequired,
+          row.nextFollowSchedule,
+        ]);
+      });
+
+      const first = group[0];
+      const subtotalRowIndex = sheetData.length;
+      sheetData.push([
+        `Tổng của ${first.fullName || ''} ngày ${first.logDate || ''}`,
+        '',
+        '',
+        '',
+        '',
+        sumField(group, 'salesPlan'),
+        group.filter((item) => String(item.customerName || '').trim() !== '').length,
+        '',
+        sumField(group, 'oldReferral'),
+        sumField(group, 'customerFollowUp'),
+        sumField(group, 'noEarlyQuote'),
+        sumField(group, 'consultStandard'),
+        sumField(group, 'closedService'),
+        sumField(group, 'personalRevenue'),
+        sumField(group, 'nextFollowRequired'),
+        '',
+      ]);
+      merges.push({ s: { r: subtotalRowIndex, c: 0 }, e: { r: subtotalRowIndex, c: 4 } });
+
+      group = [];
+    };
+
+    rows.forEach((row) => {
+      const key = `${row.employeeCode || ''}_${row.logDate || ''}`;
+      if (lastKey && key !== lastKey) {
+        pushGroup();
+      }
+      lastKey = key;
+      group.push(row);
+    });
+    pushGroup();
+
+    const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
+    worksheet['!merges'] = merges;
+    worksheet['!cols'] = [
+      { wch: 5 },   // TT
+      { wch: 14 },  // Ngày báo cáo
+      { wch: 22 },  // Đơn vị
+      { wch: 14 },  // Mã nhân viên
+      { wch: 22 },  // Họ và tên NV
+      { wch: 14 },  // Kế hoạch bán hàng
+      { wch: 28 },  // Tên KH
+      { wch: 32 },  // Địa chỉ
+      { wch: 14 },  // Khách cũ giới thiệu
+      { wch: 14 },  // Khách follow up
+      { wch: 14 },  // Không báo giá sớm
+      { wch: 18 },  // Cuộc tư vấn đủ chuẩn
+      { wch: 14 },  // Chốt dịch vụ
+      { wch: 18 },  // Doanh thu
+      { wch: 16 },  // Follow tiếp theo
+      { wch: 22 },  // Lịch hẹn follow
+    ];
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Coaching');
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+    return {
+      buffer,
+      fileName: `bao-cao-coaching-toan-tinh-${fromDate}.xlsx`,
+    };
+  }
+
+  async getCoachingProvincialGd2Data(filters: { fromDate?: string; toDate?: string; unitId?: string }) {
+    const formatDateYmd = (value: any) => {
+      if (!value) return '';
+      if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        const y = value.getFullYear();
+        const m = String(value.getMonth() + 1).padStart(2, '0');
+        const d = String(value.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      }
+      const raw = String(value).trim();
+      const isoMatch = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+      if (isoMatch) return isoMatch[1];
+      const parsed = new Date(raw);
+      if (!Number.isNaN(parsed.getTime())) {
+        const y = parsed.getFullYear();
+        const m = String(parsed.getMonth() + 1).padStart(2, '0');
+        const d = String(parsed.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      }
+      return raw;
+    };
+
+    const fromDate = filters.fromDate || new Date().toISOString().slice(0, 10);
+    const toDate = filters.toDate || fromDate;
+    const cutoffHour = await this.getCoachingReportCutoffHour();
+
+    const qb = this.dailyCoachingCustomersRepository
+      .createQueryBuilder('c')
+      .leftJoin('c.user', 'u')
+      .leftJoin('u.unit', 'unit')
+      .select([
+        'c.logDate AS "logDate"',
+        'u.employeeCode AS "employeeCode"',
+        'u.fullName AS "fullName"',
+        'c.salesPlan AS "salesPlan"',
+        'c.customerName AS "customerName"',
+        'c.customerAddress AS "customerAddress"',
+        'c.ward AS "ward"',
+        'c.oldReferral AS "oldReferral"',
+        'c.customerFollowUp AS "customerFollowUp"',
+        'c.noEarlyQuote AS "noEarlyQuote"',
+        'c.consultEnoughLayers AS "consultEnoughLayers"',
+        'c.consultSolutionMatchingNeed AS "consultSolutionMatchingNeed"',
+        'c.consultClearBenefit AS "consultClearBenefit"',
+        'c.consultMentionLossAvoidance AS "consultMentionLossAvoidance"',
+        'c.closedService AS "closedService"',
+        'c.personalRevenue AS "personalRevenue"',
+        'c.nextFollowRequired AS "nextFollowRequired"',
+        'c.nextFollowSchedule AS "nextFollowSchedule"',
+        'unit.name AS "unitName"',
+      ])
+      .where('c.logDate >= :fromDate', { fromDate })
+      .andWhere('c.logDate <= :toDate', { toDate })
+      .andWhere('c.coachingForm = :coachingForm', { coachingForm: 'coaching_form_2' });
+
+    if (filters.unitId) {
+      qb.andWhere('u.unitId = :unitId', { unitId: filters.unitId });
+    }
+
+    qb.orderBy('c.logDate', 'ASC')
+      .addOrderBy('u.fullName', 'ASC')
+      .addOrderBy('c.createdAt', 'ASC');
+
+    const rows = await qb.getRawMany();
+
+    return {
+      cutoffHour,
+      rows: rows.map((row, idx) => ({
+      stt: idx + 1,
+      logDate: formatDateYmd(row.logDate),
+      unitName: row.unitName || '',
+      employeeCode: row.employeeCode || '',
+      fullName: row.fullName || '',
+      salesPlan: Number(row.salesPlan) || 0,
+      customerName: row.customerName || '',
+      customerAddress: [row.customerAddress, row.ward].filter(Boolean).join(', ') || '',
+      oldReferral: Number(row.oldReferral) || 0,
+      customerFollowUp: Number(row.customerFollowUp) || 0,
+      noEarlyQuote: Number(row.noEarlyQuote) || 0,
+      consultEnoughLayers: Number(row.consultEnoughLayers) || 0,
+      consultSolutionMatchingNeed: Number(row.consultSolutionMatchingNeed) || 0,
+      consultClearBenefit: Number(row.consultClearBenefit) || 0,
+      consultMentionLossAvoidance: Number(row.consultMentionLossAvoidance) || 0,
+      closedService: Number(row.closedService) || 0,
+      personalRevenue: row.personalRevenue ? Number(row.personalRevenue) : 0,
+      nextFollowRequired: Number(row.nextFollowRequired) || 0,
+      nextFollowSchedule: formatDateYmd(row.nextFollowSchedule),
+      })),
+    };
+  }
+
+  async exportCoachingProvincialGd2File(filters: { fromDate?: string; toDate?: string; unitId?: string }) {
+    const fromDate = filters.fromDate || new Date().toISOString().slice(0, 10);
+    const coachingData = await this.getCoachingProvincialGd2Data(filters);
+    const rows = coachingData.rows || [];
+    const cutoffHour = Number(coachingData.cutoffHour || 7);
+
+    const headerTitles = [
+      'TT',
+      'Ngày báo cáo',
+      'Mã nhân viên',
+      'Họ và tên NV',
+      'Kế hoạch bán hàng',
+      'Tên khách hàng tiếp xúc/tư vấn',
+      'Địa chỉ khách hàng tiếp xúc/tư vấn',
+      'Khách cũ giới thiệu',
+      'Khách follow up',
+      'Không báo giá sớm',
+      'Số cuộc tư vấn có đủ 3 lớp',
+      'Số cuộc tư vấn có gắn giải pháp với nhu cầu',
+      'Số cuộc tư vấn có nói rõ lợi ích',
+      'Số cuộc tư vấn có nhắc thiệt hại tránh được',
+      'Chốt dịch vụ',
+      'Doanh thu cá nhân (Ngàn đồng)',
+      'Khách follow tiếp theo/ Bước tiếp theo',
+      'Lịch hẹn follow tiếp theo',
+    ];
+
+    const headerDescriptions = [
+      '',
+      '',
+      '',
+      '',
+      'Có danh sách KH, phân loại KH, chuẩn bị câu hỏi... (Có=1, không=0)',
+      '',
+      'Tên đường, phường (xã), số nhà/tel...',
+      '(Được KH cũ giới thiệu=1, không được giới thiệu=0)',
+      'Tư vấn lại KH tiềm năng đã được tư vấn chưa thành công (Đúng=1, sai=0)',
+      '(Đúng=1, sai=0)',
+      '(Đúng=1, sai=0)',
+      '(Đúng=1, sai=0)',
+      '(Đúng=1, sai=0)',
+      '(Đúng=1, sai=0)',
+      '(lắp đặt/ hòa mạng=1, chưa lắp đặt/HM=0)',
+      '',
+      '(có follow=1, không cần follow=0)',
+      'Lần follow ...(2): dd/mm/yyyy: Gọi lại/Tư vấn trực tiếp/nhờ giới thiệu/...',
+    ];
+
+    const sumField = (items: any[], field: string) =>
+      items.reduce((acc, row) => acc + (Number(row[field]) || 0), 0);
+
+    const sheetData: any[][] = [
+      [`Mốc cắt ngày thống kê: ${String(cutoffHour).padStart(2, '0')}:00`],
+      headerTitles,
+      headerDescriptions,
+    ];
+    const merges: any[] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 17 } }];
+    let group: any[] = [];
+    let lastKey = '';
+
+    const pushGroup = () => {
+      if (group.length === 0) return;
+
+      group.forEach((row) => {
+        sheetData.push([
+          row.stt,
+          row.logDate,
+          row.employeeCode,
+          row.fullName,
+          row.salesPlan,
+          row.customerName,
+          row.customerAddress,
+          row.oldReferral,
+          row.customerFollowUp,
+          row.noEarlyQuote,
+          row.consultEnoughLayers,
+          row.consultSolutionMatchingNeed,
+          row.consultClearBenefit,
+          row.consultMentionLossAvoidance,
+          row.closedService,
+          row.personalRevenue,
+          row.nextFollowRequired,
+          row.nextFollowSchedule,
+        ]);
+      });
+
+      const first = group[0];
+      const subtotalRowIndex = sheetData.length;
+      sheetData.push([
+        `Tổng của ${first.fullName || ''} ngày ${first.logDate || ''}`,
+        '',
+        '',
+        '',
+        sumField(group, 'salesPlan'),
+        group.filter((item) => String(item.customerName || '').trim() !== '').length,
+        '',
+        sumField(group, 'oldReferral'),
+        sumField(group, 'customerFollowUp'),
+        sumField(group, 'noEarlyQuote'),
+        sumField(group, 'consultEnoughLayers'),
+        sumField(group, 'consultSolutionMatchingNeed'),
+        sumField(group, 'consultClearBenefit'),
+        sumField(group, 'consultMentionLossAvoidance'),
+        sumField(group, 'closedService'),
+        sumField(group, 'personalRevenue'),
+        sumField(group, 'nextFollowRequired'),
+        '',
+      ]);
+      merges.push({ s: { r: subtotalRowIndex, c: 0 }, e: { r: subtotalRowIndex, c: 3 } });
+
+      group = [];
+    };
+
+    rows.forEach((row) => {
+      const key = `${row.employeeCode || ''}_${row.logDate || ''}`;
+      if (lastKey && key !== lastKey) {
+        pushGroup();
+      }
+      lastKey = key;
+      group.push(row);
+    });
+    pushGroup();
+
+    const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
+    worksheet['!merges'] = merges;
+    worksheet['!cols'] = [
+      { wch: 6 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 20 },
+      { wch: 16 },
+      { wch: 24 },
+      { wch: 24 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 16 },
+      { wch: 14 },
+      { wch: 16 },
+      { wch: 12 },
+      { wch: 18 },
+      { wch: 18 },
+      { wch: 26 },
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Coaching-GD2');
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+    return {
+      buffer,
+      fileName: `bao-cao-coaching-gd2-${fromDate}.xlsx`,
+    };
+  }
+
+  async getCoachingProvincialSummary(filters: { fromDate?: string; toDate?: string; unitId?: string }) {
+    const coachingData = await this.getCoachingProvincialData(filters);
+    const rows = coachingData.rows || [];
+    const cutoffHour = Number(coachingData.cutoffHour || 7);
+    const safeDiv = (a: number, b: number) => (b > 0 ? Number((a / b).toFixed(4)) : 0);
+
+    const totalCustomersByDate = new Map<string, number>();
+    rows.forEach((row) => {
+      const dateKey = String(row.logDate || '');
+      const hasCustomer = String(row.customerName || '').trim() !== '';
+      const current = totalCustomersByDate.get(dateKey) || 0;
+      totalCustomersByDate.set(dateKey, current + (hasCustomer ? 1 : 0));
+    });
+
+    const grouped = new Map<string, any[]>();
+    rows.forEach((row) => {
+      const key = `${row.logDate || ''}__${row.employeeCode || ''}`;
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key)!.push(row);
+    });
+
+    const summaryRows = Array.from(grouped.values())
+      .map((items, idx) => {
+        const first = items[0] || {};
+        const executionDate = String(first.logDate || '');
+        const employeeCode = String(first.employeeCode || '');
+        const total6 = items.filter((row) => String(row.customerName || '').trim() !== '').length;
+        const total8 = items.reduce((sum, row) => sum + (Number(row.oldReferral) || 0), 0);
+        const total9 = items.filter((row) => Number(row.customerFollowUp) > 0).length;
+        const total10 = items.reduce((sum, row) => sum + (Number(row.noEarlyQuote) || 0), 0);
+        const total11 = items.reduce((sum, row) => sum + (Number(row.consultStandard) || 0), 0);
+        const total12 = items.reduce((sum, row) => sum + (Number(row.closedService) || 0), 0);
+        const total14 = items.reduce((sum, row) => sum + (Number(row.nextFollowRequired) || 0), 0);
+
+        const rowsClosed0 = items.filter((row) => Number(row.closedService) === 0);
+        const rowsClosed1 = items.filter((row) => Number(row.closedService) === 1);
+        const total15Eq1 = items.filter((row) => Number(row.nextFollowRequired) === 1).length;
+        const total13Eq0 = rowsClosed0.length;
+        const total23 = total15Eq1 + total13Eq0;
+        const total22 = rowsClosed0.reduce((sum, row) => sum + (Number(row.nextFollowRequired) || 0), 0);
+        const total7Eq1 = items.filter((row) => String(row.customerName || '').trim() !== '').length;
+        const total24 = total7Eq1 + total13Eq0 - total23;
+        const total15Eq1FromPreviousDaysMatchedSchedule = rows.filter((row) => {
+          const rowEmployeeCode = String(row.employeeCode || '');
+          const rowDate = String(row.logDate || '');
+          const rowSchedule = String(row.nextFollowSchedule || '');
+          return (
+            rowEmployeeCode === employeeCode
+            && rowDate < executionDate
+            && Number(row.nextFollowRequired) === 1
+            && rowSchedule === executionDate
+          );
+        }).length;
+        const total27 = safeDiv(total9, total15Eq1FromPreviousDaysMatchedSchedule);
+
+        return {
+          stt: idx + 1,
+          executionDate: first.logDate || '',
+          unitName: first.unitName || '',
+          employeeCode: first.employeeCode || '',
+          employeeName: first.fullName || '',
+          totalCustomersOfDay: totalCustomersByDate.get(String(first.logDate || '')) || 0,
+          metrics: {
+            m16: safeDiv(total12, total6),
+            m17: safeDiv(total8, total6),
+            m18: safeDiv(total10, total6),
+            m19: total10,
+            m20: total11,
+            m21: safeDiv(total11, total6),
+            m22: total23,
+            m23: total9,
+            m24: total24,
+            m25: safeDiv(total9 + total12, total9),
+            m26: safeDiv(total23, rowsClosed0.length),
+            m27: total27,
+          },
+        };
+      })
+      .sort((a, b) => {
+        const d = String(a.executionDate || '').localeCompare(String(b.executionDate || ''));
+        if (d !== 0) return d;
+        return String(a.employeeName || '').localeCompare(String(b.employeeName || ''));
+      })
+      .map((row, index) => ({ ...row, stt: index + 1 }));
+
+    return {
+      filters: {
+        fromDate: filters.fromDate || new Date().toISOString().slice(0, 10),
+        toDate: filters.toDate || filters.fromDate || new Date().toISOString().slice(0, 10),
+        unitId: filters.unitId || null,
+        cutoffHour,
+      },
+      rows: summaryRows,
+    };
+  }
+
+  async exportCoachingProvincialSummaryFile(filters: { fromDate?: string; toDate?: string; unitId?: string }) {
+    const summary = await this.getCoachingProvincialSummary(filters);
+    const percent = (v: number) => `${(Number(v || 0) * 100).toFixed(2)}%`;
+
+    const headerTitles = [
+      'STT',
+      'Ngày thực hiện',
+      'Đơn vị',
+      'Mã nhân viên',
+      'Tên nhân viên',
+      'Tổng số khách hàng ngày đó',
+      'Tỷ lệ chốt dịch vụ',
+      'Tỷ lệ khách cũ giới thiệu',
+      'Tỷ lệ cuộc không báo giá sớm',
+      'Tỷ lệ nhân viên trả lời chuyển hướng đúng',
+      'Số lần tư vấn có hỏi nhu cầu trước khi nói giá',
+      'Tỷ lệ cuộc tư vấn đủ chuẩn',
+      'Số khách hàng tiềm năng có lịch follow-up',
+      'Số khách hàng được theo đuổi mỗi ngày',
+      'Số khách hàng bị treo không có bước tiếp theo',
+      'Tỷ lệ khách hàng đồng ý dịch vụ sau follow-up',
+      'Tỷ lệ khách hàng tiềm năng có lịch follow-up',
+      'Tỷ lệ theo đuổi đúng hẹn',
+    ];
+
+    const formulaRow = [
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '(17) = tong(13) / tong(7)',
+      '(18) = tong(9) / tong(7)',
+      '(19) = tong(11) / tong(7)',
+      '(20) = tong(11)',
+      '(21) = tong(12)',
+      '(22) = tong(12) / tong(7)',
+      '(23) = (tong(15)=1) + (tong(13)=0)',
+      '(24) = tong(10)',
+      '(25) = ((tong(7)=1) + (tong(13)=0)) - (23)',
+      '(26) = ((tong(10)=1) + (tong(13)=1)) / tong(10)',
+      '(27) = tong(23) / so dong (13)=0',
+      '(28) = tong(10) hien tai / tong(15)=1 cac ngay truoc co lich follow = ngay hien tai',
+    ];
+
+    const valueRows = (summary.rows || []).map((row: any) => [
+      Number(row.stt || 0),
+      row.executionDate || '',
+      row.unitName || '',
+      row.employeeCode || '',
+      row.employeeName || '',
+      Number(row.totalCustomersOfDay || 0),
+      percent(row?.metrics?.m16),
+      percent(row?.metrics?.m17),
+      percent(row?.metrics?.m18),
+      Number(row?.metrics?.m19 || 0),
+      Number(row?.metrics?.m20 || 0),
+      percent(row?.metrics?.m21),
+      Number(row?.metrics?.m22 || 0),
+      Number(row?.metrics?.m23 || 0),
+      Number(row?.metrics?.m24 || 0),
+      percent(row?.metrics?.m25),
+      percent(row?.metrics?.m26),
+      percent(row?.metrics?.m27),
+    ]);
+
+    const sheetData = [
+      [`Mốc cắt ngày thống kê: ${String(summary?.filters?.cutoffHour || 7).padStart(2, '0')}:00`],
+      headerTitles,
+      formulaRow,
+      ...valueRows,
+    ];
+    const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
+    worksheet['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 17 } }];
+    worksheet['!cols'] = [
+      { wch: 8 },
+      { wch: 16 },
+      { wch: 20 },
+      { wch: 16 },
+      { wch: 20 },
+      { wch: 18 },
+      { wch: 24 },
+      { wch: 24 },
+      { wch: 24 },
+      { wch: 28 },
+      { wch: 34 },
+      { wch: 24 },
+      { wch: 30 },
+      { wch: 26 },
+      { wch: 34 },
+      { wch: 32 },
+      { wch: 32 },
+      { wch: 24 },
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Tong-hop-coaching');
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    const fromDate = summary.filters.fromDate;
+
+    return {
+      buffer,
+      fileName: `bao-cao-coaching-tong-hop-${fromDate}.xlsx`,
+    };
   }
 
   async getCutoffTime() {

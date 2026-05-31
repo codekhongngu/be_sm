@@ -22,6 +22,9 @@ export class CatalogItem {
   @Column({ type: 'text', nullable: true })
   description?: string;
 
+  @Column({ default: 'GENERAL' })
+  category: string;
+
   @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
   price: number;
 

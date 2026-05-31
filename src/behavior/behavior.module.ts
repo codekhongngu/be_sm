@@ -13,6 +13,7 @@ import { CareerCommitmentLog } from './entities/career-commitment-log.entity';
 import { EndOfDayLog } from './entities/end-of-day-log.entity';
 import { IncomeBreakthroughLog } from './entities/income-breakthrough-log.entity';
 import { JourneyPhaseConfig } from './entities/journey-phase-config.entity';
+import { CoachingPhaseConfig } from './entities/coaching-phase-config.entity';
 import { MindsetLog } from './entities/mindset-log.entity';
 import { Phase3StandardLog } from './entities/phase-3-standard-log.entity';
 import { SalesActivityReport } from './entities/sales-activity-report.entity';
@@ -21,6 +22,9 @@ import { WeeklyConfig } from './entities/weekly-config.entity';
 import { WeeklyJournalLog } from './entities/weekly-journal-log.entity';
 import { Evaluation } from '../evaluations/entities/evaluation.entity';
 import { WeeklyReportSubmission } from './entities/weekly-report-submission.entity';
+import { ManagerCoachingLog } from './entities/manager-coaching-log.entity';
+import { DailyCoachingCustomer } from './entities/daily-coaching-customer.entity';
+import { CatalogItem } from '../catalogs/entities/catalog-item.entity';
 
 @Module({
   imports: [
@@ -41,8 +45,12 @@ import { WeeklyReportSubmission } from './entities/weekly-report-submission.enti
       IncomeBreakthroughLog,
       CareerCommitmentLog,
       JourneyPhaseConfig,
+      CoachingPhaseConfig,
       SystemConfig,
       WeeklyReportSubmission,
+      ManagerCoachingLog,
+      DailyCoachingCustomer,
+      CatalogItem,
     ]),
     forwardRef(() => UsersModule),
   ],

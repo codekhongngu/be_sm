@@ -276,3 +276,39 @@ function resolvePhaseForms(joinDate: string, today: string) {
   - `form8`: có bản ghi trong `belief_transformation_logs`
   - `form9`: có bản ghi trong `income_breakthrough_logs`
   - `form12`: có bản ghi trong `career_commitment_logs`
+
+## 8) Phiếu coaching do quản lý nhập
+
+- Màn hình FE: `discipline/manager-coaching`
+- Quyền: `MANAGER|ADMIN`
+- Mục tiêu:
+  - Quản lý nhập phiếu coaching cho nhân viên
+  - `Người coach` mặc định là tài khoản đang đăng nhập
+  - Chỉ cho chọn `Người được coaching` là nhân viên
+  - Nếu là `MANAGER` thì chỉ được chọn nhân viên trong cùng đơn vị
+- Cấu trúc dữ liệu:
+  - `coachingTime`: thời gian coaching
+  - `coachUserId`: người coach, lấy từ user đăng nhập
+  - `coachedUserId`: nhân viên được coaching
+  - `coachingContent`: nội dung coach
+  - `contentToImprove`: nội dung cần sửa
+  - `keepTnc`: `1|0`
+  - `evaluationResult`: `1|0`
+- API:
+  - `GET /api/manager/coaching-logs`
+  - `POST /api/manager/coaching-logs`
+  - `PATCH /api/manager/coaching-logs/:id`
+  - `DELETE /api/manager/coaching-logs/:id`
+  - `GET /api/manager/coaching-logs/export`
+- Quy tắc phân quyền:
+  - `MANAGER` chỉ xem/sửa/xóa phiếu do chính mình tạo
+  - `ADMIN` được xem và thao tác toàn bộ dữ liệu
+- Export Excel:
+  - Xuất đúng 7 cột của biểu mẫu coaching:
+    - `Thời gian coaching`
+    - `Người coach`
+    - `Người được coaching`
+    - `Nội dung coach`
+    - `Sửa nội dung gì`
+    - `Giữ chuẩn TNC`
+    - `Đánh giá người được coaching`

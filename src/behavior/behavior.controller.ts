@@ -9,8 +9,11 @@ import {
   Patch,
   Post,
   Req,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { Role } from 'src/common/enums/role.enum';
@@ -23,8 +26,12 @@ import { SubmitLogDto } from './dto/submit-log.dto';
 import { ReviewDailyFormsDto } from './dto/review-daily-forms.dto';
 import { SubmitWeeklyJournalDto } from './dto/submit-weekly-journal.dto';
 import { UpsertJourneyPhaseConfigDto } from './dto/upsert-journey-phase-config.dto';
+import { UpsertCoachingPhaseConfigDto } from './dto/upsert-coaching-phase-config.dto';
 import { UpdateWeeklyConfigDto } from './dto/update-weekly-config.dto';
 import { SaveWeeklyReportDto } from './dto/save-weekly-report.dto';
+import { CreateManagerCoachingLogDto } from './dto/create-manager-coaching-log.dto';
+import { UpdateManagerCoachingLogDto } from './dto/update-manager-coaching-log.dto';
+import { SaveDailyCoachingCustomerDto } from './dto/save-daily-coaching-customer.dto';
 
 @Controller('api')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -43,6 +50,75 @@ export class BehaviorController {
     return this.behaviorService.getPendingLogsForManager(req.user);
   }
 
+  @Get('manager/coaching-logs')
+  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  getManagerCoachingLogs(
+    @Req() req: any,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+    @Query('coachedUserId') coachedUserId?: string,
+    @Query('keyword') keyword?: string,
+  ) {
+    return this.behaviorService.getManagerCoachingLogs(req.user, {
+      fromDate,
+      toDate,
+      coachedUserId,
+      keyword,
+    });
+  }
+
+  @Get('manager/coaching-logs/employees')
+  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  getManagerCoachingEmployees(@Req() req: any) {
+    return this.behaviorService.getManagerCoachingEmployees(req.user);
+  }
+
+  @Post('manager/coaching-logs')
+  @Roles(Role.MANAGER, Role.ADMIN)
+  createManagerCoachingLog(@Req() req: any, @Body() dto: CreateManagerCoachingLogDto) {
+    return this.behaviorService.createManagerCoachingLog(req.user, dto);
+  }
+
+  @Patch('manager/coaching-logs/:id')
+  @Roles(Role.MANAGER, Role.ADMIN)
+  updateManagerCoachingLog(
+    @Param('id') id: string,
+    @Req() req: any,
+    @Body() dto: UpdateManagerCoachingLogDto,
+  ) {
+    return this.behaviorService.updateManagerCoachingLog(id, req.user, dto);
+  }
+
+  @Delete('manager/coaching-logs/:id')
+  @Roles(Role.MANAGER, Role.ADMIN)
+  deleteManagerCoachingLog(@Param('id') id: string, @Req() req: any) {
+    return this.behaviorService.deleteManagerCoachingLog(id, req.user);
+  }
+
+  @Get('manager/coaching-logs/export')
+  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  async exportManagerCoachingLogs(
+    @Req() req: any,
+    @Res() res: Response,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+    @Query('coachedUserId') coachedUserId?: string,
+    @Query('keyword') keyword?: string,
+  ) {
+    const file = await this.behaviorService.exportManagerCoachingLogsFile(req.user, {
+      fromDate,
+      toDate,
+      coachedUserId,
+      keyword,
+    });
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
+    return res.send(file.buffer);
+  }
+
   @Get('logs/history')
   @Roles(Role.EMPLOYEE, Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   getLogsHistory(@Req() req: any, @Query('logDate') logDate: string, @Query('userId') userId: string) {
@@ -59,6 +135,54 @@ export class BehaviorController {
     @Query('toDate') toDate?: string,
   ) {
     return this.behaviorService.getJourneyTimelineFormStatuses(req.user, { fromDate, toDate });
+  }
+
+  @Get('coaching-customers')
+  @Roles(Role.EMPLOYEE)
+  getDailyCoachingCustomers(
+    @Req() req: any,
+    @Query('logDate') logDate?: string,
+    @Query('coachingForm') coachingForm?: string,
+  ) {
+    return this.behaviorService.getDailyCoachingCustomers(req.user, logDate, coachingForm);
+  }
+
+  @Post('coaching-customers')
+  @Roles(Role.EMPLOYEE)
+  saveDailyCoachingCustomer(@Req() req: any, @Body() dto: SaveDailyCoachingCustomerDto) {
+    return this.behaviorService.saveDailyCoachingCustomer(req.user, dto);
+  }
+
+  @Post('coaching-customers/import-excel')
+  @Roles(Role.EMPLOYEE)
+  @UseInterceptors(FileInterceptor('file'))
+  importDailyCoachingCustomersExcel(
+    @Req() req: any,
+    @UploadedFile() file: any,
+    @Body('logDate') logDate?: string,
+    @Body('coachingForm') coachingForm?: string,
+  ) {
+    return this.behaviorService.importDailyCoachingCustomersFromExcel(
+      req.user,
+      file,
+      logDate,
+      coachingForm,
+    );
+  }
+
+  @Get('coaching-customers/import-template')
+  @Roles(Role.EMPLOYEE)
+  async downloadDailyCoachingCustomersImportTemplate(
+    @Res() res: Response,
+    @Query('coachingForm') coachingForm?: string,
+  ) {
+    const file = await this.behaviorService.getDailyCoachingCustomersImportTemplateFile(coachingForm);
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
+    return res.send(file.buffer);
   }
 
   @Patch('manager/logs/evaluate/:id')
@@ -325,6 +449,18 @@ export class BehaviorController {
     return this.behaviorService.getJourneyPhaseConfigsForAdmin();
   }
 
+  @Get('coaching-phase-configs')
+  @Roles(Role.EMPLOYEE, Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  getCoachingPhaseConfigs() {
+    return this.behaviorService.getCoachingPhaseConfigs();
+  }
+
+  @Get('admin/coaching-phase-configs')
+  @Roles(Role.ADMIN)
+  getCoachingPhaseConfigsForAdmin() {
+    return this.behaviorService.getCoachingPhaseConfigsForAdmin();
+  }
+
   @Post('admin/journey-phase-configs')
   @Roles(Role.ADMIN)
   createJourneyPhaseConfig(@Body() dto: UpsertJourneyPhaseConfigDto) {
@@ -335,6 +471,107 @@ export class BehaviorController {
   @Roles(Role.ADMIN)
   updateJourneyPhaseConfig(@Param('id') id: string, @Body() dto: UpsertJourneyPhaseConfigDto) {
     return this.behaviorService.upsertJourneyPhaseConfig(id, dto);
+  }
+
+  @Post('admin/coaching-phase-configs')
+  @Roles(Role.ADMIN)
+  createCoachingPhaseConfig(@Body() dto: UpsertCoachingPhaseConfigDto) {
+    return this.behaviorService.upsertCoachingPhaseConfig(null, dto);
+  }
+
+  @Patch('admin/coaching-phase-configs/:id')
+  @Roles(Role.ADMIN)
+  updateCoachingPhaseConfig(@Param('id') id: string, @Body() dto: UpsertCoachingPhaseConfigDto) {
+    return this.behaviorService.upsertCoachingPhaseConfig(id, dto);
+  }
+
+  @Get('reports/coaching-provincial-data')
+  @Roles(Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  async getCoachingProvincialData(
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+    @Query('unitId') unitId?: string,
+  ) {
+    return this.behaviorService.getCoachingProvincialData({ fromDate, toDate, unitId });
+  }
+
+  @Get('reports/coaching-provincial-export')
+  @Roles(Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  async exportCoachingProvincial(
+    @Res() res: Response,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+    @Query('unitId') unitId?: string,
+  ) {
+    const file = await this.behaviorService.exportCoachingProvincialFile({ fromDate, toDate, unitId });
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
+    return res.send(file.buffer);
+  }
+
+  @Get('reports/coaching-provincial-summary')
+  @Roles(Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  async getCoachingProvincialSummary(
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+    @Query('unitId') unitId?: string,
+  ) {
+    return this.behaviorService.getCoachingProvincialSummary({ fromDate, toDate, unitId });
+  }
+
+  @Get('reports/coaching-provincial-summary-export')
+  @Roles(Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  async exportCoachingProvincialSummary(
+    @Res() res: Response,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+    @Query('unitId') unitId?: string,
+  ) {
+    const file = await this.behaviorService.exportCoachingProvincialSummaryFile({
+      fromDate,
+      toDate,
+      unitId,
+    });
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
+    return res.send(file.buffer);
+  }
+
+  @Get('reports/coaching-provincial-gd2-data')
+  @Roles(Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  async getCoachingProvincialGd2Data(
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+    @Query('unitId') unitId?: string,
+  ) {
+    return this.behaviorService.getCoachingProvincialGd2Data({ fromDate, toDate, unitId });
+  }
+
+  @Get('reports/coaching-provincial-gd2-export')
+  @Roles(Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  async exportCoachingProvincialGd2(
+    @Res() res: Response,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+    @Query('unitId') unitId?: string,
+  ) {
+    const file = await this.behaviorService.exportCoachingProvincialGd2File({
+      fromDate,
+      toDate,
+      unitId,
+    });
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
+    return res.send(file.buffer);
   }
 
   @Patch('admin/system-configs')

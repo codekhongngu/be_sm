@@ -589,6 +589,120 @@
           }
         }
       ]
+    },
+    {
+      "name": "Manager Coaching",
+      "item": [
+        {
+          "name": "Get Coaching Logs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/manager/coaching-logs?fromDate=2026-05-01&toDate=2026-05-31",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "manager", "coaching-logs"],
+              "query": [
+                { "key": "fromDate", "value": "2026-05-01" },
+                { "key": "toDate", "value": "2026-05-31" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Coaching Log",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"coachedUserId\": \"{{userId}}\",\n  \"coachingTime\": \"2026-05-22T08:30:00.000Z\",\n  \"coachingContent\": \"Hướng dẫn cách tư vấn khách hàng\",\n  \"contentToImprove\": \"Cần cải thiện phần hỏi sâu nhu cầu\",\n  \"keepTnc\": 1,\n  \"evaluationResult\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/manager/coaching-logs",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "manager", "coaching-logs"]
+            }
+          }
+        },
+        {
+          "name": "Update Coaching Log",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contentToImprove\": \"Bổ sung kỹ năng chốt nhu cầu\",\n  \"keepTnc\": 0,\n  \"evaluationResult\": 0\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/manager/coaching-logs/{{coachingLogId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "manager", "coaching-logs", "{{coachingLogId}}"]
+            }
+          }
+        },
+        {
+          "name": "Delete Coaching Log",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/manager/coaching-logs/{{coachingLogId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "manager", "coaching-logs", "{{coachingLogId}}"]
+            }
+          }
+        },
+        {
+          "name": "Export Coaching Logs",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/manager/coaching-logs/export?fromDate=2026-05-01&toDate=2026-05-31",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "manager", "coaching-logs", "export"],
+              "query": [
+                { "key": "fromDate", "value": "2026-05-01" },
+                { "key": "toDate", "value": "2026-05-31" }
+              ]
+            }
+          }
+        }
+      ]
     }
   ],
   "variable": [
@@ -610,6 +724,14 @@
     },
     {
       "key": "catalogId",
+      "value": ""
+    },
+    {
+      "key": "userId",
+      "value": ""
+    },
+    {
+      "key": "coachingLogId",
       "value": ""
     }
   ]

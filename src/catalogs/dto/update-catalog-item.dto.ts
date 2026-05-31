@@ -14,6 +14,10 @@ export class UpdateCatalogItemDto {
   description?: string;
 
   @IsOptional()
+  @IsString()
+  category?: string;
+
+  @IsOptional()
   @IsNumber()
   @Min(0)
   price?: number;
