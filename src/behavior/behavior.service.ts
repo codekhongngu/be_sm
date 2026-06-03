@@ -288,6 +288,14 @@ export class BehaviorService implements OnModuleInit {
     return clamped.toFixed(2);
   }
 
+  private convertVndToThousandDisplay(value: any) {
+    const numeric = Number(value || 0);
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+      return 0;
+    }
+    return Number((numeric / 1000).toFixed(2));
+  }
+
   private getCoachingExcelValue(row: any, keys: string[]) {
     for (const key of keys) {
       const value = row?.[key];
@@ -2228,7 +2236,7 @@ export class BehaviorService implements OnModuleInit {
       noEarlyQuote: Number(row.noEarlyQuote) || 0,
       consultStandard: Number(row.consultStandard) || 0,
       closedService: Number(row.closedService) || 0,
-      personalRevenue: row.personalRevenue ? Number(row.personalRevenue) : 0,
+      personalRevenue: this.convertVndToThousandDisplay(row.personalRevenue),
       nextFollowRequired: Number(row.nextFollowRequired) || 0,
       nextFollowSchedule: formatDateYmd(row.nextFollowSchedule),
       unitName: row.unitName || '',
@@ -2449,7 +2457,7 @@ export class BehaviorService implements OnModuleInit {
       consultClearBenefit: Number(row.consultClearBenefit) || 0,
       consultMentionLossAvoidance: Number(row.consultMentionLossAvoidance) || 0,
       closedService: Number(row.closedService) || 0,
-      personalRevenue: row.personalRevenue ? Number(row.personalRevenue) : 0,
+      personalRevenue: this.convertVndToThousandDisplay(row.personalRevenue),
       nextFollowRequired: Number(row.nextFollowRequired) || 0,
       nextFollowSchedule: formatDateYmd(row.nextFollowSchedule),
       })),
@@ -2618,12 +2626,14 @@ export class BehaviorService implements OnModuleInit {
     const cutoffHour = Number(coachingData.cutoffHour || 7);
     const safeDiv = (a: number, b: number) => (b > 0 ? Number((a / b).toFixed(4)) : 0);
 
-    const totalCustomersByDate = new Map<string, number>();
+    const totalCustomersByEmployeeDate = new Map<string, number>();
     rows.forEach((row) => {
       const dateKey = String(row.logDate || '');
+      const employeeKey = String(row.employeeCode || '');
       const hasCustomer = String(row.customerName || '').trim() !== '';
-      const current = totalCustomersByDate.get(dateKey) || 0;
-      totalCustomersByDate.set(dateKey, current + (hasCustomer ? 1 : 0));
+      const key = `${dateKey}__${employeeKey}`;
+      const current = totalCustomersByEmployeeDate.get(key) || 0;
+      totalCustomersByEmployeeDate.set(key, current + (hasCustomer ? 1 : 0));
     });
 
     const grouped = new Map<string, any[]>();
@@ -2673,7 +2683,10 @@ export class BehaviorService implements OnModuleInit {
           unitName: first.unitName || '',
           employeeCode: first.employeeCode || '',
           employeeName: first.fullName || '',
-          totalCustomersOfDay: totalCustomersByDate.get(String(first.logDate || '')) || 0,
+          totalCustomersOfDay:
+            totalCustomersByEmployeeDate.get(
+              `${String(first.logDate || '')}__${String(first.employeeCode || '')}`,
+            ) || 0,
           metrics: {
             m16: safeDiv(total12, total6),
             m17: safeDiv(total8, total6),

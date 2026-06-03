@@ -312,3 +312,6 @@ function resolvePhaseForms(joinDate: string, today: string) {
     - `Sửa nội dung gì`
     - `Giữ chuẩn TNC`
     - `Đánh giá người được coaching`
+- Quy ước doanh thu ở các báo cáo coaching:
+  - Dữ liệu gốc `personalRevenue` được lưu trong DB theo đơn vị `VND`
+  - Các cột có nhãn `Doanh thu (Ngàn đồng)` hoặc `Doanh thu cá nhân (Ngàn đồng)` sẽ tự quy đổi `VND / 1000` khi hiển thị và khi xuất Excel
