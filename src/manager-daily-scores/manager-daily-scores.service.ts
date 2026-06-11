@@ -71,6 +71,48 @@ export class ManagerDailyScoresService {
     return Number(parsed.toFixed(2));
   }
 
+  private async getConfiguredHolidayDates() {
+    const lockedDatesConfig = await this.systemConfigsRepository.findOne({
+      where: { key: 'LOCKED_ENTRY_DATES' },
+    });
+    return new Set(
+      String(lockedDatesConfig?.value || '')
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean),
+    );
+  }
+
+  private getValidDateKeysInRange(fromDate: string, toDate: string, holidayDates: Set<string>) {
+    const from = this.toDateKey(fromDate || '');
+    const to = this.toDateKey(toDate || '');
+    if (!from || !to || from > to) {
+      return [];
+    }
+    const dates: string[] = [];
+    const cursor = new Date(`${from}T00:00:00`);
+    const end = new Date(`${to}T00:00:00`);
+    while (cursor <= end) {
+      const dateKey = cursor.toISOString().slice(0, 10);
+      const day = cursor.getUTCDay();
+      const isWeekend = day === 0 || day === 6;
+      if (!isWeekend && !holidayDates.has(dateKey)) {
+        dates.push(dateKey);
+      }
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    return dates;
+  }
+
+  private isWeekendDateKey(dateKey: string) {
+    if (!dateKey) {
+      return false;
+    }
+    const date = new Date(`${dateKey}T00:00:00Z`);
+    const day = date.getUTCDay();
+    return day === 0 || day === 6;
+  }
+
   private async getEmployeeByScope(currentUser: any, employeeId: string) {
     const employee = await this.usersRepository.findOne(employeeId);
     if (!employee || employee.role !== Role.EMPLOYEE) {
@@ -596,48 +638,59 @@ export class ManagerDailyScoresService {
     filters: { fromDate?: string; toDate?: string; employeeId?: string; unitId?: string },
   ) {
     const criteria = await this.getActiveCriteria();
-
-    const qb = this.sheetsRepository
-      .createQueryBuilder('sheet')
-      .leftJoinAndSelect('sheet.employee', 'employee')
-      .leftJoinAndSelect('employee.unit', 'employeeunit')
-      .leftJoinAndSelect('sheet.manager', 'manager')
-      .leftJoinAndSelect('sheet.items', 'items')
-      .leftJoinAndSelect('items.criterion', 'criterion');
-
     const fromDate = this.toDateKey(filters.fromDate || '');
     const toDate = this.toDateKey(filters.toDate || '');
-
-    if (fromDate) {
-      qb.andWhere('sheet.score_date >= :fromDate', { fromDate });
-    }
-    if (toDate) {
-      qb.andWhere('sheet.score_date <= :toDate', { toDate });
-    }
-
-    // Không tính trong thống kê 2 ngày cuối tuần thứ 7 và chủ nhật
-    qb.andWhere('EXTRACT(ISODOW FROM sheet.score_date) NOT IN (6, 7)');
+    let scopedEmployeeId = '';
 
     if (filters.employeeId) {
       const employee = await this.getEmployeeByScope(currentUser, filters.employeeId);
-      qb.andWhere('sheet.employeeId = :employeeId', { employeeId: employee.id });
-    } else if (currentUser.role === Role.MANAGER) {
-      qb.andWhere('sheet.unitId = :unitId', { unitId: currentUser.unitId });
-    } else if (filters.unitId) {
-      qb.andWhere('sheet.unitId = :unitId', { unitId: filters.unitId });
+      scopedEmployeeId = employee.id;
     }
 
-    qb.andWhere('sheet.status = :status', { status: 'APPROVED' });
-    qb.andWhere('(employeeunit."excludeFromStatistics" IS NULL OR employeeunit."excludeFromStatistics" = false)');
+    console.log({ fromDate, toDate, employeeId: scopedEmployeeId || null, unitId: filters.unitId || null, status: 'APPROVED' });
 
-    console.log("--- QUERY THỐNG KÊ TOÀN TỈNH ---");
-    console.log(qb.getQuery());
-    console.log(qb.getParameters());
-
-    const sheets = await qb
-      .orderBy('sheet.score_date', 'DESC')
-      .addOrderBy('employee."fullName"', 'ASC')
-      .getMany();
+    const sheets = (await this.sheetsRepository.find({
+      relations: ['items'],
+      order: { scoreDate: 'DESC' },
+    }))
+      .filter((sheet) => {
+        const scoreDate = this.toDateKey(sheet.scoreDate || '');
+        if (!scoreDate) {
+          return false;
+        }
+        if (fromDate && scoreDate < fromDate) {
+          return false;
+        }
+        if (toDate && scoreDate > toDate) {
+          return false;
+        }
+        if (this.isWeekendDateKey(scoreDate)) {
+          return false;
+        }
+        if (sheet.status !== 'APPROVED') {
+          return false;
+        }
+        if (sheet.employee?.unit?.excludeFromStatistics) {
+          return false;
+        }
+        if (scopedEmployeeId && sheet.employeeId !== scopedEmployeeId) {
+          return false;
+        }
+        if (!scopedEmployeeId && currentUser.role === Role.MANAGER && sheet.unitId !== currentUser.unitId) {
+          return false;
+        }
+        if (!scopedEmployeeId && currentUser.role !== Role.MANAGER && filters.unitId && sheet.unitId !== filters.unitId) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const dateCompare = String(b.scoreDate || '').localeCompare(String(a.scoreDate || ''));
+        if (dateCompare !== 0) {
+          return dateCompare;
+        }
+        return String(a.employee?.fullName || '').localeCompare(String(b.employee?.fullName || ''), 'vi');
+      });
 
     const sections = this.groupCriteria(criteria);
     const sectionItemCodes = new Map(
@@ -702,14 +755,18 @@ export class ManagerDailyScoresService {
       }
     >();
 
-    const allUnitsQb = this.unitsRepository.createQueryBuilder('unit')
-      .where('(unit."excludeFromStatistics" IS NULL OR unit."excludeFromStatistics" = false)');
-    if (currentUser.role === Role.MANAGER) {
-      allUnitsQb.andWhere('unit.id = :unitId', { unitId: currentUser.unitId });
-    } else if (filters.unitId) {
-      allUnitsQb.andWhere('unit.id = :unitId', { unitId: filters.unitId });
-    }
-    const allUnits = await allUnitsQb.getMany();
+    const allUnits = (await this.unitsRepository.find({ order: { name: 'ASC' } })).filter((unit) => {
+      if (unit.excludeFromStatistics) {
+        return false;
+      }
+      if (currentUser.role === Role.MANAGER) {
+        return unit.id === currentUser.unitId;
+      }
+      if (filters.unitId) {
+        return unit.id === filters.unitId;
+      }
+      return true;
+    });
 
     for (const unit of allUnits) {
       const employeeCount = await this.usersRepository.count({
@@ -768,6 +825,298 @@ export class ManagerDailyScoresService {
               ),
       },
     };
+  }
+
+  async getTncCompetition(
+    currentUser: any,
+    filters: { fromDate?: string; toDate?: string; unitId?: string },
+  ) {
+    const fromDate = this.toDateKey(filters.fromDate || '');
+    const toDate = this.toDateKey(filters.toDate || '');
+    if (!fromDate || !toDate) {
+      throw new BadRequestException('Vui lòng chọn từ ngày và đến ngày');
+    }
+    if (fromDate > toDate) {
+      throw new BadRequestException('Từ ngày không được lớn hơn đến ngày');
+    }
+
+    const holidayDates = await this.getConfiguredHolidayDates();
+    const validDateKeys = this.getValidDateKeysInRange(fromDate, toDate, holidayDates);
+    const validDateKeySet = new Set(validDateKeys);
+    const validDayCount = validDateKeys.length;
+
+    const includedUnits = (await this.unitsRepository.find({ order: { name: 'ASC' } })).filter((unit) => {
+      if (unit.excludeFromStatistics) {
+        return false;
+      }
+      if (currentUser.role === Role.MANAGER) {
+        return unit.id === currentUser.unitId;
+      }
+      if (filters.unitId) {
+        return unit.id === filters.unitId;
+      }
+      return true;
+    });
+    const includedUnitIds = includedUnits.map((unit) => unit.id);
+
+    if (includedUnitIds.length === 0) {
+      return {
+        filters: {
+          fromDate,
+          toDate,
+          unitId: filters.unitId || null,
+        },
+        validDayCount,
+        holidayDates: validDateKeys.length > 0 ? validDateKeys.filter(() => false) : [],
+        excludedHolidayDates: Array.from(holidayDates).filter((date) => date >= fromDate && date <= toDate),
+        learningRows: [],
+        behaviorRows: [],
+        performanceRows: [],
+        collectiveRows: [],
+      };
+    }
+
+    const employees = (await this.usersRepository.find({
+      order: { fullName: 'ASC' },
+    }))
+      .filter((user) => user.role === Role.EMPLOYEE && includedUnitIds.includes(user.unitId))
+      .sort((a, b) => {
+        const unitCompare = String(a.unit?.name || '').localeCompare(String(b.unit?.name || ''), 'vi');
+        if (unitCompare !== 0) {
+          return unitCompare;
+        }
+        return String(a.fullName || '').localeCompare(String(b.fullName || ''), 'vi');
+      });
+
+    const sheets = (await this.sheetsRepository.find({
+      relations: ['items'],
+      order: { scoreDate: 'DESC' },
+    })).filter(
+      (sheet) =>
+        sheet.status === 'APPROVED' &&
+        includedUnitIds.includes(sheet.unitId) &&
+        validDateKeySet.has(this.toDateKey(sheet.scoreDate || '')),
+    );
+
+    const employeeStatsMap = new Map<
+      string,
+      {
+        employeeId: string;
+        employeeCode: string;
+        fullName: string;
+        username: string;
+        unitId: string;
+        unitName: string;
+        learningTotal: number;
+        behaviorTotal: number;
+        performanceTotal: number;
+        totalScore: number;
+      }
+    >();
+    const unitStatsMap = new Map<
+      string,
+      {
+        unitId: string;
+        unitName: string;
+        employeeCount: number;
+        totalScore: number;
+      }
+    >();
+
+    employees.forEach((employee) => {
+      employeeStatsMap.set(employee.id, {
+        employeeId: employee.id,
+        employeeCode: employee.employeeCode || '',
+        fullName: employee.fullName || '',
+        username: employee.username || '',
+        unitId: employee.unitId || '',
+        unitName: employee.unit?.name || '',
+        learningTotal: 0,
+        behaviorTotal: 0,
+        performanceTotal: 0,
+        totalScore: 0,
+      });
+    });
+
+    includedUnits.forEach((unit) => {
+      const employeeCount = employees.filter((employee) => employee.unitId === unit.id).length;
+      unitStatsMap.set(unit.id, {
+        unitId: unit.id,
+        unitName: unit.name || '',
+        employeeCount,
+        totalScore: 0,
+      });
+    });
+
+    sheets.forEach((sheet) => {
+      const employeeId = sheet.employee?.id;
+      if (!employeeId) {
+        return;
+      }
+      const employeeStats = employeeStatsMap.get(employeeId);
+      if (!employeeStats) {
+        return;
+      }
+
+      let learningSum = 0;
+      let behaviorSum = 0;
+      let performanceSum = 0;
+      (sheet.items || []).forEach((item) => {
+        const sectionCode = item.criterion?.sectionCode;
+        const score = this.normalizeNumber(item.score);
+        if (sectionCode === 'LEARNING') {
+          learningSum += score;
+        } else if (sectionCode === 'BEHAVIOR') {
+          behaviorSum += score;
+        } else if (sectionCode === 'PERFORMANCE') {
+          performanceSum += score;
+        }
+      });
+
+      employeeStats.learningTotal += learningSum;
+      employeeStats.behaviorTotal += behaviorSum;
+      employeeStats.performanceTotal += performanceSum;
+      employeeStats.totalScore += this.normalizeNumber(sheet.totalScore);
+
+      const unitStats = unitStatsMap.get(employeeStats.unitId);
+      if (unitStats) {
+        unitStats.totalScore += this.normalizeNumber(sheet.totalScore);
+      }
+    });
+
+    const toCompetitionRow = (
+      item: {
+        employeeId: string;
+        employeeCode: string;
+        fullName: string;
+        username: string;
+        unitId: string;
+        unitName: string;
+      },
+      totalScore: number,
+    ) => ({
+      employeeId: item.employeeId,
+      employeeCode: item.employeeCode,
+      fullName: item.fullName,
+      username: item.username,
+      unitId: item.unitId,
+      unitName: item.unitName,
+      totalScore: Number(totalScore.toFixed(2)),
+      averageScore:
+        validDayCount > 0 ? Number((totalScore / validDayCount).toFixed(2)) : 0,
+    });
+
+    const employeeStats = [...employeeStatsMap.values()];
+    const learningRows = employeeStats
+      .map((item) => toCompetitionRow(item, item.learningTotal))
+      .sort((a, b) => b.averageScore - a.averageScore || a.fullName.localeCompare(b.fullName, 'vi'));
+    const behaviorRows = employeeStats
+      .map((item) => toCompetitionRow(item, item.behaviorTotal))
+      .sort((a, b) => b.averageScore - a.averageScore || a.fullName.localeCompare(b.fullName, 'vi'));
+    const performanceRows = employeeStats
+      .map((item) => toCompetitionRow(item, item.performanceTotal))
+      .sort((a, b) => b.averageScore - a.averageScore || a.fullName.localeCompare(b.fullName, 'vi'));
+
+    const collectiveRows = [...unitStatsMap.values()]
+      .map((item) => ({
+        unitId: item.unitId,
+        unitName: item.unitName,
+        employeeCount: item.employeeCount,
+        totalScore: Number(item.totalScore.toFixed(2)),
+        averageScore:
+          item.employeeCount > 0 && validDayCount > 0
+            ? Number((item.totalScore / item.employeeCount / validDayCount).toFixed(2))
+            : 0,
+      }))
+      .sort((a, b) => b.averageScore - a.averageScore || a.unitName.localeCompare(b.unitName, 'vi'));
+
+    return {
+      filters: {
+        fromDate,
+        toDate,
+        unitId: filters.unitId || null,
+      },
+      validDayCount,
+      excludedHolidayDates: Array.from(holidayDates).filter((date) => date >= fromDate && date <= toDate),
+      learningRows,
+      behaviorRows,
+      performanceRows,
+      collectiveRows,
+    };
+  }
+
+  async exportTncCompetitionFile(
+    currentUser: any,
+    filters: { fromDate?: string; toDate?: string; unitId?: string },
+  ) {
+    const data = await this.getTncCompetition(currentUser, filters);
+    const workbook = XLSX.utils.book_new();
+
+    const metaRows = [
+      ['Từ ngày', data.filters.fromDate || ''],
+      ['Đến ngày', data.filters.toDate || ''],
+      ['Số ngày hợp lệ', Number(data.validDayCount || 0)],
+      ['Ngày nghỉ bị loại', (data.excludedHolidayDates || []).join(', ') || ''],
+      [],
+    ];
+
+    const createEmployeeSheet = (sheetName: string, rows: any[]) => {
+      const aoa = [
+        ...metaRows,
+        ['Hạng', 'Đơn vị', 'Mã nhân viên', 'Họ và tên', 'Tài khoản', 'Tổng điểm', 'BQ điểm/ngày'],
+        ...(rows || []).map((row, index) => [
+          index + 1,
+          row.unitName || '',
+          row.employeeCode || '',
+          row.fullName || '',
+          row.username || '',
+          Number(row.totalScore || 0),
+          Number(row.averageScore || 0),
+        ]),
+      ];
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      ws['!cols'] = [
+        { wch: 8 },
+        { wch: 28 },
+        { wch: 18 },
+        { wch: 28 },
+        { wch: 20 },
+        { wch: 14 },
+        { wch: 14 },
+      ];
+      XLSX.utils.book_append_sheet(workbook, ws, sheetName);
+    };
+
+    createEmployeeSheet('Thi dua hoc tap', data.learningRows || []);
+    createEmployeeSheet('Thi dua thuc hanh', data.behaviorRows || []);
+    createEmployeeSheet('Thi dua hieu qua', data.performanceRows || []);
+
+    const collectiveAoa = [
+      ...metaRows,
+      ['Hạng', 'Đơn vị', 'Số nhân viên', 'Tổng điểm', 'Điểm tập thể BQ/ngày'],
+      ...((data.collectiveRows || []).map((row, index) => [
+        index + 1,
+        row.unitName || '',
+        Number(row.employeeCount || 0),
+        Number(row.totalScore || 0),
+        Number(row.averageScore || 0),
+      ])),
+    ];
+    const collectiveSheet = XLSX.utils.aoa_to_sheet(collectiveAoa);
+    collectiveSheet['!cols'] = [
+      { wch: 8 },
+      { wch: 28 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 18 },
+    ];
+    XLSX.utils.book_append_sheet(workbook, collectiveSheet, 'Tong diem tap the');
+
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    const fromDate = String(data.filters.fromDate || '').trim();
+    const toDate = String(data.filters.toDate || '').trim();
+    const fileName = `thi-dua-tnc-${fromDate || 'all'}-${toDate || 'all'}.xlsx`;
+    return { buffer, fileName };
   }
 
   async exportStatisticsFile(
@@ -945,7 +1294,7 @@ export class ManagerDailyScoresService {
         `s.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh' < (CAST(:scoreDate AS DATE) + INTERVAL '1 day' + make_interval(hours => CAST(:cutoffHour AS int)))`,
         { cutoffHour: appliedCutoffHour },
       )
-      .andWhere('(u."excludeFromStatistics" IS NULL OR u."excludeFromStatistics" = false)');
+      .andWhere('COALESCE(u."excludeFromStatistics", false) = false');
 
     if (filters?.unitId) {
       qb.andWhere('u.id = :unitId', { unitId: filters.unitId });

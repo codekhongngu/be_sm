@@ -315,3 +315,42 @@ function resolvePhaseForms(joinDate: string, today: string) {
 - Quy ước doanh thu ở các báo cáo coaching:
   - Dữ liệu gốc `personalRevenue` được lưu trong DB theo đơn vị `VND`
   - Các cột có nhãn `Doanh thu (Ngàn đồng)` hoặc `Doanh thu cá nhân (Ngàn đồng)` sẽ tự quy đổi `VND / 1000` khi hiển thị và khi xuất Excel
+
+## 9) Thi đua TNC trên thống kê toàn tỉnh
+
+- Màn hình FE: `discipline/provincial-statistics`
+- Mục mới: `Thi đua TNC`
+- API:
+  - `GET /manager-daily-scores/tnc-competition`
+  - `GET /manager-daily-scores/tnc-competition-export`
+- Quyền: `MANAGER|ADMIN|PROVINCIAL_VIEWER`
+- Bộ lọc:
+  - `fromDate`
+  - `toDate`
+  - `unitId?`
+- Nguồn dữ liệu:
+  - `manager_daily_score_sheets`
+  - `manager_daily_score_items`
+  - `manager_daily_score_criteria`
+  - `users`
+  - `units`
+  - `system_configs.LOCKED_ENTRY_DATES`
+- Quy tắc tính:
+  - Chỉ lấy phiếu `APPROVED`
+  - Loại Thứ 7, Chủ nhật
+  - Loại các ngày nằm trong `LOCKED_ENTRY_DATES` như danh sách ngày nghỉ loại trừ khi tính thi đua
+  - Chỉ lấy các đơn vị có `excludeFromStatistics != true`
+- Các bảng trả về:
+  - `learningRows`: bình quân điểm/ngày theo nhóm `LEARNING`
+  - `behaviorRows`: bình quân điểm/ngày theo nhóm `BEHAVIOR`
+  - `performanceRows`: bình quân điểm/ngày theo nhóm `PERFORMANCE`
+  - `collectiveRows`: điểm tập thể = `tổng điểm đơn vị / số nhân viên đơn vị / số ngày hợp lệ`
+- Export Excel:
+  - Xuất 4 sheet:
+    - `Thi dua hoc tap`
+    - `Thi dua thuc hanh`
+    - `Thi dua hieu qua`
+    - `Tong diem tap the`
+- Quy tắc bình quân:
+  - Bình quân theo toàn bộ số ngày hợp lệ trong khoảng lọc, kể cả ngày nhân viên không có phiếu thì xem như `0` điểm
+  - Không có xếp loại, chỉ sắp xếp từ cao xuống thấp

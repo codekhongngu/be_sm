@@ -91,6 +91,43 @@ export class ManagerDailyScoresController {
     });
   }
 
+  @Get('tnc-competition')
+  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  getTncCompetition(
+    @Req() req: any,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+    @Query('unitId') unitId?: string,
+  ) {
+    return this.managerDailyScoresService.getTncCompetition(req.user, {
+      fromDate,
+      toDate,
+      unitId,
+    });
+  }
+
+  @Get('tnc-competition-export')
+  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  async exportTncCompetition(
+    @Req() req: any,
+    @Res() res: Response,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+    @Query('unitId') unitId?: string,
+  ) {
+    const file = await this.managerDailyScoresService.exportTncCompetitionFile(req.user, {
+      fromDate,
+      toDate,
+      unitId,
+    });
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
+    return res.send(file.buffer);
+  }
+
   @Get('statistics-export')
   @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   async exportStatistics(

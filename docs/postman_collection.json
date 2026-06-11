@@ -703,6 +703,55 @@
           }
         }
       ]
+    },
+    {
+      "name": "Manager Daily Scores",
+      "item": [
+        {
+          "name": "Get TNC Competition",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/manager-daily-scores/tnc-competition?fromDate=2026-05-01&toDate=2026-05-31&unitId={{unitId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["manager-daily-scores", "tnc-competition"],
+              "query": [
+                { "key": "fromDate", "value": "2026-05-01" },
+                { "key": "toDate", "value": "2026-05-31" },
+                { "key": "unitId", "value": "{{unitId}}" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Export TNC Competition",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/manager-daily-scores/tnc-competition-export?fromDate=2026-05-01&toDate=2026-05-31&unitId={{unitId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["manager-daily-scores", "tnc-competition-export"],
+              "query": [
+                { "key": "fromDate", "value": "2026-05-01" },
+                { "key": "toDate", "value": "2026-05-31" },
+                { "key": "unitId", "value": "{{unitId}}" }
+              ]
+            }
+          }
+        }
+      ]
     }
   ],
   "variable": [

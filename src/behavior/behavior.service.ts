@@ -3423,7 +3423,7 @@ export class BehaviorService implements OnModuleInit {
     let usersQuery = this.usersRepository.createQueryBuilder('u')
       .leftJoinAndSelect('u.unit', 'unit')
       .where('u.role = :employeeRole', { employeeRole: Role.EMPLOYEE })
-      .andWhere('(unit.excludeFromStatistics IS NULL OR unit.excludeFromStatistics = false)');
+      .andWhere('COALESCE("unit"."excludeFromStatistics", false) = false');
 
     if (currentUser.role === Role.MANAGER) {
       usersQuery = usersQuery.andWhere('u.unitId = :unitId', { unitId: currentUser.unitId });
@@ -3633,7 +3633,7 @@ export class BehaviorService implements OnModuleInit {
     const qb = this.usersRepository.createQueryBuilder('u')
       .leftJoinAndSelect('u.unit', 'un')
       .where('u.role = :role', { role: Role.EMPLOYEE })
-      .andWhere('(un.excludeFromStatistics IS NULL OR un.excludeFromStatistics = false)');
+      .andWhere('COALESCE("un"."excludeFromStatistics", false) = false');
 
     if (currentUser.role === Role.MANAGER) {
       qb.andWhere('u.unitId = :unitId', { unitId: currentUser.unitId });
