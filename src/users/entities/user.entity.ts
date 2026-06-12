@@ -47,6 +47,9 @@ export class User {
   @Column({ nullable: true })
   telegramChatId?: string;
 
+  @Column({ default: false })
+  canManageCoaching?: boolean;
+
   @OneToMany(() => Journal, (journal) => journal.user)
   journals: Journal[];
 

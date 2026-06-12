@@ -68,6 +68,7 @@ export class AuthService {
     unitId: string;
     unit?: { name?: string };
     fullName: string;
+    canManageCoaching?: boolean;
   }) {
     const payload = {
       sub: user.id,
@@ -76,6 +77,7 @@ export class AuthService {
       unitId: user.unitId,
       unitName: user.unit?.name,
       fullName: user.fullName,
+      canManageCoaching: !!user.canManageCoaching,
     };
     const accessToken = this.jwtService.sign(payload);
 

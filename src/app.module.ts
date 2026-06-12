@@ -36,6 +36,7 @@ import { Phase3StandardLog } from './behavior/entities/phase-3-standard-log.enti
 import { WeeklyJournalLog } from './behavior/entities/weekly-journal-log.entity';
 import { ManagerDailyScoresModule } from './manager-daily-scores/manager-daily-scores.module';
 import { ManagerDailyScoreCriterion } from './manager-daily-scores/entities/manager-daily-score-criterion.entity';
+import { ManagerDailyScoreImport } from './manager-daily-scores/entities/manager-daily-score-import.entity';
 import { ManagerDailyScoreSheet } from './manager-daily-scores/entities/manager-daily-score-sheet.entity';
 import { ManagerDailyScoreItem } from './manager-daily-scores/entities/manager-daily-score-item.entity';
 import { SystemConfig } from './behavior/entities/system-config.entity';
@@ -90,6 +91,7 @@ import { DailyCoachingCustomer } from './behavior/entities/daily-coaching-custom
             JourneyPhaseConfig,
             CoachingPhaseConfig,
             ManagerDailyScoreCriterion,
+            ManagerDailyScoreImport,
             ManagerDailyScoreSheet,
             ManagerDailyScoreItem,
             SystemConfig,

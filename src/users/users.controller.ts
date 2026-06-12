@@ -77,6 +77,7 @@ export class UsersController {
       unitId: dto.unitId,
       role: dto.role,
       telegramChatId: dto.telegramChatId?.trim() || undefined,
+      canManageCoaching: !!dto.canManageCoaching,
     });
     return {
       id: user.id,
@@ -85,6 +86,7 @@ export class UsersController {
       employeeCode: user.employeeCode,
       role: user.role,
       unitId: user.unitId,
+      canManageCoaching: !!user.canManageCoaching,
     };
   }
 
@@ -143,6 +145,9 @@ export class UsersController {
     if (dto.telegramChatId !== undefined) {
       targetUser.telegramChatId = dto.telegramChatId?.trim() || undefined;
     }
+    if (dto.canManageCoaching !== undefined) {
+      targetUser.canManageCoaching = !!dto.canManageCoaching;
+    }
 
     const updated = await this.usersService.save(targetUser);
     return {
@@ -153,6 +158,7 @@ export class UsersController {
       role: updated.role,
       unitId: updated.unitId,
       telegramChatId: updated.telegramChatId,
+      canManageCoaching: !!updated.canManageCoaching,
     };
   }
 

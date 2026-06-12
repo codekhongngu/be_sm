@@ -870,6 +870,10 @@ export class BehaviorService implements OnModuleInit {
   }
 
   private async getManageableEmployeeForCoaching(currentUser: any, coachedUserId: string) {
+    const actor = await this.resolveManagerCoachingActor(currentUser);
+    if (!this.canEditManagerCoaching(actor)) {
+      throw new ForbiddenException('Bạn không có quyền nhập phiếu coaching');
+    }
     const employee = await this.usersRepository.findOne({
       where: { id: coachedUserId },
       relations: ['unit'],
@@ -879,15 +883,56 @@ export class BehaviorService implements OnModuleInit {
       throw new BadRequestException('Không tìm thấy nhân viên được coaching');
     }
 
-    if (currentUser.role === Role.MANAGER && employee.unitId !== currentUser.unitId) {
+    if (actor.role !== Role.ADMIN && employee.unitId !== actor.unitId) {
       throw new ForbiddenException('Chỉ được coaching nhân viên trong cùng đơn vị');
     }
 
-    if (employee.id === currentUser.id) {
+    if (employee.id === actor.id) {
       throw new BadRequestException('Người được coaching không được trùng người coach');
     }
 
     return employee;
+  }
+
+  private canViewManagerCoaching(currentUser: any) {
+    return (
+      currentUser?.role === Role.ADMIN ||
+      currentUser?.role === Role.PROVINCIAL_VIEWER ||
+      currentUser?.role === Role.MANAGER ||
+      !!currentUser?.canManageCoaching
+    );
+  }
+
+  private canEditManagerCoaching(currentUser: any) {
+    return (
+      currentUser?.role === Role.ADMIN ||
+      currentUser?.role === Role.MANAGER ||
+      !!currentUser?.canManageCoaching
+    );
+  }
+
+  private async resolveManagerCoachingActor(currentUser: any) {
+    const actorId = currentUser?.sub || currentUser?.id;
+    if (!actorId) {
+      return currentUser;
+    }
+    const actor = await this.usersRepository.findOne({
+      where: { id: actorId },
+      relations: ['unit'],
+    });
+    if (!actor) {
+      return currentUser;
+    }
+    return {
+      ...currentUser,
+      id: actor.id,
+      sub: actor.id,
+      role: actor.role,
+      unitId: actor.unitId,
+      unitName: actor.unit?.name || currentUser?.unitName,
+      fullName: actor.fullName,
+      canManageCoaching: !!actor.canManageCoaching,
+    };
   }
 
   private async getManagerCoachingLogById(logId: string) {
@@ -921,11 +966,15 @@ export class BehaviorService implements OnModuleInit {
   }
 
   private async assertManagerCoachingLogAccess(logId: string, currentUser: any) {
+    const actor = await this.resolveManagerCoachingActor(currentUser);
+    if (!this.canEditManagerCoaching(actor)) {
+      throw new ForbiddenException('Bạn không có quyền thao tác phiếu coaching');
+    }
     const log = await this.managerCoachingLogsRepository.findOne({ where: { id: logId } });
     if (!log) {
       throw new NotFoundException('Không tìm thấy phiếu coaching');
     }
-    if (currentUser.role === Role.MANAGER && log.coachUserId !== currentUser.id) {
+    if (actor.role !== Role.ADMIN && log.coachUserId !== actor.id) {
       throw new ForbiddenException('Chỉ được thao tác trên phiếu coaching do bạn tạo');
     }
     return log;
@@ -935,6 +984,10 @@ export class BehaviorService implements OnModuleInit {
     currentUser: any,
     filters: { fromDate?: string; toDate?: string; coachedUserId?: string; keyword?: string },
   ) {
+    const actor = await this.resolveManagerCoachingActor(currentUser);
+    if (!this.canViewManagerCoaching(actor)) {
+      throw new ForbiddenException('Bạn không có quyền xem phiếu coaching');
+    }
     const fromDate = this.normalizeCoachingDateFilter(filters?.fromDate);
     const toDate = this.normalizeCoachingDateFilter(filters?.toDate);
     const coachedUserId = String(filters?.coachedUserId || '').trim();
@@ -964,8 +1017,8 @@ export class BehaviorService implements OnModuleInit {
         'unit.name AS "coachedUnitName"',
       ]);
 
-    if (currentUser.role === Role.MANAGER) {
-      qb.andWhere('log.coachUserId = :coachUserId', { coachUserId: currentUser.id });
+    if (actor.role !== Role.ADMIN && actor.role !== Role.PROVINCIAL_VIEWER) {
+      qb.andWhere('log.coachUserId = :coachUserId', { coachUserId: actor.id });
     }
 
     if (fromDate) {
@@ -993,6 +1046,10 @@ export class BehaviorService implements OnModuleInit {
   }
 
   async getManagerCoachingEmployees(currentUser: any) {
+    const actor = await this.resolveManagerCoachingActor(currentUser);
+    if (!this.canViewManagerCoaching(actor)) {
+      throw new ForbiddenException('Bạn không có quyền xem danh sách nhân viên coaching');
+    }
     const qb = this.usersRepository
       .createQueryBuilder('user')
       .leftJoin('user.unit', 'unit')
@@ -1005,10 +1062,10 @@ export class BehaviorService implements OnModuleInit {
         'unit.name AS "unitName"',
       ])
       .where('user.role = :role', { role: Role.EMPLOYEE })
-      .andWhere('user.id <> :currentUserId', { currentUserId: currentUser.id });
+      .andWhere('user.id <> :currentUserId', { currentUserId: actor.id });
 
-    if (currentUser.role === Role.MANAGER) {
-      qb.andWhere('user.unitId = :unitId', { unitId: currentUser.unitId });
+    if (actor.role !== Role.ADMIN && actor.role !== Role.PROVINCIAL_VIEWER) {
+      qb.andWhere('user.unitId = :unitId', { unitId: actor.unitId });
     }
 
     const rows = await qb.orderBy('user.fullName', 'ASC').addOrderBy('user.username', 'ASC').getRawMany();
@@ -1023,10 +1080,14 @@ export class BehaviorService implements OnModuleInit {
   }
 
   async createManagerCoachingLog(currentUser: any, dto: CreateManagerCoachingLogDto) {
-    await this.getManageableEmployeeForCoaching(currentUser, dto.coachedUserId);
+    const actor = await this.resolveManagerCoachingActor(currentUser);
+    if (!this.canEditManagerCoaching(actor)) {
+      throw new ForbiddenException('Bạn không có quyền nhập phiếu coaching');
+    }
+    await this.getManageableEmployeeForCoaching(actor, dto.coachedUserId);
 
     const log = this.managerCoachingLogsRepository.create({
-      coachUserId: currentUser.id,
+      coachUserId: actor.id,
       coachedUserId: dto.coachedUserId,
       coachingTime: new Date(dto.coachingTime),
       coachingContent: dto.coachingContent.trim(),
@@ -1044,10 +1105,14 @@ export class BehaviorService implements OnModuleInit {
     currentUser: any,
     dto: UpdateManagerCoachingLogDto,
   ) {
-    const target = await this.assertManagerCoachingLogAccess(logId, currentUser);
+    const actor = await this.resolveManagerCoachingActor(currentUser);
+    if (!this.canEditManagerCoaching(actor)) {
+      throw new ForbiddenException('Bạn không có quyền cập nhật phiếu coaching');
+    }
+    const target = await this.assertManagerCoachingLogAccess(logId, actor);
 
     if (dto.coachedUserId) {
-      await this.getManageableEmployeeForCoaching(currentUser, dto.coachedUserId);
+      await this.getManageableEmployeeForCoaching(actor, dto.coachedUserId);
       target.coachedUserId = dto.coachedUserId;
     }
     if (dto.coachingTime) {
@@ -1071,7 +1136,11 @@ export class BehaviorService implements OnModuleInit {
   }
 
   async deleteManagerCoachingLog(logId: string, currentUser: any) {
-    const target = await this.assertManagerCoachingLogAccess(logId, currentUser);
+    const actor = await this.resolveManagerCoachingActor(currentUser);
+    if (!this.canEditManagerCoaching(actor)) {
+      throw new ForbiddenException('Bạn không có quyền xóa phiếu coaching');
+    }
+    const target = await this.assertManagerCoachingLogAccess(logId, actor);
     await this.managerCoachingLogsRepository.remove(target);
     return { success: true };
   }
@@ -3385,6 +3454,106 @@ export class BehaviorService implements OnModuleInit {
     return {
       buffer,
       fileName: `bao-cao-mau-2-3-4-5-${filters.fromDate || 'all'}-${filters.toDate || 'all'}.xlsx`,
+    };
+  }
+
+  async exportApprovedJournalsForms7912File(
+    currentUser: any,
+    filters: { fromDate?: string; toDate?: string; unitId?: string; keyword?: string },
+  ) {
+    let query = `
+      WITH approved_forms AS (
+        SELECT d.user_id::uuid AS user_id, d.log_date, d.form_type
+        FROM daily_form_reviews d
+        WHERE d.status = 'APPROVED'
+          AND d.form_type IN ('FORM_7', 'FORM_9', 'FORM_12')
+      ),
+      base_dates AS (
+        SELECT user_id, log_date
+        FROM approved_forms
+        GROUP BY user_id, log_date
+      )
+      SELECT
+        TO_CHAR(base.log_date, 'YYYY-MM-DD') AS "Ngày",
+        un.name AS "Tên đơn vị",
+        u."fullName" AS "Tên nhân viên",
+        u.username AS "Tài khoản",
+        u."employeeCode" AS "Mã nhân viên",
+        CASE WHEN r7.user_id IS NOT NULL THEN 'Đã duyệt' ELSE 'Chưa duyệt' END AS "Mẫu 7 - Trạng thái",
+        COALESCE(f7.kept_standard, '') AS "Mẫu 7 - Chuẩn đã giữ",
+        COALESCE(f7.backslide_sign, '') AS "Mẫu 7 - Dấu hiệu tụt chuẩn",
+        COALESCE(f7.solution, '') AS "Mẫu 7 - Cách xử lý",
+        CASE WHEN r9.user_id IS NOT NULL THEN 'Đã duyệt' ELSE 'Chưa duyệt' END AS "Mẫu 9 - Trạng thái",
+        COALESCE(f9.self_limit_area, '') AS "Mẫu 9 - Tự giới hạn",
+        COALESCE(f9.proof_behavior, '') AS "Mẫu 9 - Hành vi chứng minh",
+        COALESCE(f9.raise_standard, '') AS "Mẫu 9 - Nâng chuẩn",
+        COALESCE(f9.action_plan, '') AS "Mẫu 9 - Hành động",
+        CASE WHEN r12.user_id IS NOT NULL THEN 'Đã duyệt' ELSE 'Chưa duyệt' END AS "Mẫu 12 - Trạng thái",
+        COALESCE(f12.declaration_text, '') AS "Mẫu 12 - Tuyên ngôn",
+        COALESCE(f12.commitment_signature, '') AS "Mẫu 12 - Ký tên"
+      FROM base_dates base
+      INNER JOIN users u ON u.id = base.user_id
+      INNER JOIN units un ON un.id = u."unitId"
+      LEFT JOIN approved_forms r7
+        ON r7.user_id = base.user_id
+        AND r7.log_date = base.log_date
+        AND r7.form_type = 'FORM_7'
+      LEFT JOIN phase3_standard_logs f7
+        ON f7.user_id = base.user_id
+        AND f7.log_date = base.log_date
+      LEFT JOIN approved_forms r9
+        ON r9.user_id = base.user_id
+        AND r9.log_date = base.log_date
+        AND r9.form_type = 'FORM_9'
+      LEFT JOIN income_breakthrough_logs f9
+        ON f9.user_id = base.user_id
+        AND f9.log_date = base.log_date
+      LEFT JOIN approved_forms r12
+        ON r12.user_id = base.user_id
+        AND r12.log_date = base.log_date
+        AND r12.form_type = 'FORM_12'
+      LEFT JOIN career_commitment_logs f12
+        ON f12.user_id = base.user_id
+        AND f12.log_date = base.log_date
+      WHERE u.role = 'EMPLOYEE'
+        AND (un."excludeFromStatistics" IS NULL OR un."excludeFromStatistics" = false)
+    `;
+
+    const params: any[] = [];
+    let paramIndex = 1;
+
+    if (filters.fromDate) {
+      query += ` AND base.log_date >= $${paramIndex++}`;
+      params.push(filters.fromDate);
+    }
+    if (filters.toDate) {
+      query += ` AND base.log_date <= $${paramIndex++}`;
+      params.push(filters.toDate);
+    }
+    if (currentUser.role === Role.MANAGER) {
+      query += ` AND u."unitId" = $${paramIndex++}`;
+      params.push(currentUser.unitId);
+    } else if (filters.unitId) {
+      query += ` AND u."unitId" = $${paramIndex++}`;
+      params.push(filters.unitId);
+    }
+    const keyword = String(filters.keyword || '').trim().toLowerCase();
+    if (keyword) {
+      query += ` AND (LOWER(u."fullName") LIKE $${paramIndex} OR LOWER(u.username) LIKE $${paramIndex++})`;
+      params.push(`%${keyword}%`);
+    }
+
+    query += ` ORDER BY un.name ASC, u."fullName" ASC, base.log_date DESC`;
+
+    const rows = await this.journalsRepository.query(query, params);
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Mau7912');
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+    return {
+      buffer,
+      fileName: `bao-cao-mau-7-9-12-${filters.fromDate || 'all'}-${filters.toDate || 'all'}.xlsx`,
     };
   }
 

@@ -9,9 +9,12 @@ import {
   Query,
   Req,
   Res,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import { Response } from 'express';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { Role } from 'src/common/enums/role.enum';
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
@@ -74,6 +77,25 @@ export class ManagerDailyScoresController {
     return this.managerDailyScoresService.submitEntry(req.user, dto);
   }
 
+  @Post('import-performance-data')
+  @Roles(Role.PROVINCIAL_VIEWER, Role.ADMIN)
+  @UseInterceptors(FileInterceptor('file'))
+  importPerformanceData(@UploadedFile() file: any, @Req() req: any) {
+    return this.managerDailyScoresService.importPerformanceData(req.user, file);
+  }
+
+  @Get('import-performance-template')
+  @Roles(Role.PROVINCIAL_VIEWER, Role.ADMIN)
+  async downloadImportPerformanceTemplate(@Res() res: Response) {
+    const file = await this.managerDailyScoresService.downloadImportPerformanceTemplate();
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
+    return res.send(file.buffer);
+  }
+
   @Get('statistics')
   @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   getStatistics(
@@ -98,11 +120,13 @@ export class ManagerDailyScoresController {
     @Query('fromDate') fromDate?: string,
     @Query('toDate') toDate?: string,
     @Query('unitId') unitId?: string,
+    @Query('useApprovedScore') useApprovedScore?: string,
   ) {
     return this.managerDailyScoresService.getTncCompetition(req.user, {
       fromDate,
       toDate,
       unitId,
+      useApprovedScore,
     });
   }
 
@@ -114,11 +138,13 @@ export class ManagerDailyScoresController {
     @Query('fromDate') fromDate?: string,
     @Query('toDate') toDate?: string,
     @Query('unitId') unitId?: string,
+    @Query('useApprovedScore') useApprovedScore?: string,
   ) {
     const file = await this.managerDailyScoresService.exportTncCompetitionFile(req.user, {
       fromDate,
       toDate,
       unitId,
+      useApprovedScore,
     });
     res.setHeader(
       'Content-Type',

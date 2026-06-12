@@ -5,16 +5,22 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { BehaviorChecklistLog } from 'src/behavior/entities/behavior-checklist-log.entity';
+import { EndOfDayLog } from 'src/behavior/entities/end-of-day-log.entity';
+import { ManagerCoachingLog } from 'src/behavior/entities/manager-coaching-log.entity';
+import { MindsetLog } from 'src/behavior/entities/mindset-log.entity';
+import { SalesActivityReport } from 'src/behavior/entities/sales-activity-report.entity';
 import { SystemConfig } from 'src/behavior/entities/system-config.entity';
 import { Role } from 'src/common/enums/role.enum';
 import { User } from 'src/users/entities/user.entity';
 import { Unit } from 'src/users/entities/unit.entity';
-import { Repository } from 'typeorm';
+import { Between, In, Repository } from 'typeorm';
 import * as XLSX from 'xlsx';
 import { CreateManagerDailyScoreCriterionDto } from './dto/create-manager-daily-score-criterion.dto';
 import { SubmitManagerDailyScoreDto } from './dto/submit-manager-daily-score.dto';
 import { UpdateManagerDailyScoreCriterionDto } from './dto/update-manager-daily-score-criterion.dto';
 import { ManagerDailyScoreCriterion } from './entities/manager-daily-score-criterion.entity';
+import { ManagerDailyScoreImport } from './entities/manager-daily-score-import.entity';
 import { ManagerDailyScoreItem } from './entities/manager-daily-score-item.entity';
 import { ManagerDailyScoreSheet } from './entities/manager-daily-score-sheet.entity';
 import { validateActionTimeForDate } from '../common/utils/time-validator.util';
@@ -40,13 +46,35 @@ const DEFAULT_CRITERIA = [
 const BEHAVIOR_SECTION_CODE = 'BEHAVIOR';
 const BEHAVIOR_SECTION_MAX_SCORE = 35;
 const BEHAVIOR_CUSTOMERS_CONTACTED_CODE = 'BEHAVIOR_CUSTOMERS_CONTACTED';
+const BEHAVIOR_OLD_CUSTOMERS_CONSULTED_CODE = 'BEHAVIOR_OLD_CUSTOMERS_CONSULTED';
 const BEHAVIOR_SUCCESSFUL_CARE_CALLS_CODE = 'BEHAVIOR_SUCCESSFUL_CARE_CALLS';
+const BEHAVIOR_SALES_PLAN_CODE = 'BEHAVIOR_SALES_PLAN';
+const BEHAVIOR_PREPARE_CONSULT_CODE = 'BEHAVIOR_PREPARE_CONSULT';
+const BEHAVIOR_DAILY_CHECKLIST_CODE = 'BEHAVIOR_DAILY_CHECKLIST';
+const BEHAVIOR_DIRECTOR_EVALUATION_CODE = 'BEHAVIOR_DIRECTOR_EVALUATION';
+const PERFORMANCE_RENEWAL_SERVICES_CODE = 'PERFORMANCE_RENEWAL_SERVICES';
+const PERFORMANCE_NEW_PTM_PACKAGES_CODE = 'PERFORMANCE_NEW_PTM_PACKAGES';
+const PERFORMANCE_CLOSE_RATE_CODE = 'PERFORMANCE_CLOSE_RATE';
+const PERFORMANCE_REVENUE_CODE = 'PERFORMANCE_REVENUE';
+const PERFORMANCE_RETURNING_REFERRED_CODE = 'PERFORMANCE_RETURNING_REFERRED';
 
 @Injectable()
 export class ManagerDailyScoresService {
   constructor(
+    @InjectRepository(BehaviorChecklistLog)
+    private readonly behaviorChecklistLogsRepository: Repository<BehaviorChecklistLog>,
+    @InjectRepository(MindsetLog)
+    private readonly mindsetLogsRepository: Repository<MindsetLog>,
+    @InjectRepository(SalesActivityReport)
+    private readonly salesActivityReportsRepository: Repository<SalesActivityReport>,
+    @InjectRepository(EndOfDayLog)
+    private readonly endOfDayLogsRepository: Repository<EndOfDayLog>,
+    @InjectRepository(ManagerCoachingLog)
+    private readonly managerCoachingLogsRepository: Repository<ManagerCoachingLog>,
     @InjectRepository(ManagerDailyScoreCriterion)
     private readonly criteriaRepository: Repository<ManagerDailyScoreCriterion>,
+    @InjectRepository(ManagerDailyScoreImport)
+    private readonly importsRepository: Repository<ManagerDailyScoreImport>,
     @InjectRepository(ManagerDailyScoreSheet)
     private readonly sheetsRepository: Repository<ManagerDailyScoreSheet>,
     @InjectRepository(ManagerDailyScoreItem)
@@ -69,6 +97,15 @@ export class ManagerDailyScoresService {
   private normalizeNumber(value: string | number) {
     const parsed = Number(value || 0);
     return Number(parsed.toFixed(2));
+  }
+
+  private parseImportedNumber(value: any) {
+    if (value === null || value === undefined || value === '') {
+      return 0;
+    }
+    const normalized = String(value).replace(/\s+/g, '').replace(/,/g, '');
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? Number(parsed.toFixed(2)) : NaN;
   }
 
   private async getConfiguredHolidayDates() {
@@ -111,6 +148,149 @@ export class ManagerDailyScoresService {
     const date = new Date(`${dateKey}T00:00:00Z`);
     const day = date.getUTCDay();
     return day === 0 || day === 6;
+  }
+
+  private buildEmployeeDateKey(employeeId: string, dateKey: string) {
+    return `${String(employeeId || '')}__${String(dateKey || '')}`;
+  }
+
+  private normalizeImportedMetric(value: string | number | null | undefined) {
+    const parsed = Number(value || 0);
+    if (Number.isNaN(parsed)) {
+      return 0;
+    }
+    return Number(parsed.toFixed(2));
+  }
+
+  private safeNumericInput(value: any) {
+    const parsed = this.parseImportedNumber(value);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+
+  private isCustomerCareUnit(unit?: Unit | null) {
+    const normalized = `${String(unit?.code || '')} ${String(unit?.name || '')}`.toUpperCase();
+    return normalized.includes('CSKH');
+  }
+
+  private calculateSuccessfulCareCallsScore(callCount: number) {
+    if (callCount >= 100) {
+      return 10;
+    }
+    if (callCount >= 90) {
+      return 8;
+    }
+    if (callCount >= 80) {
+      return 6;
+    }
+    if (callCount >= 60) {
+      return 4;
+    }
+    return 0;
+  }
+
+  private calculateSuccessfulServicesScore(serviceCount: number) {
+    if (serviceCount >= 3) {
+      return 10;
+    }
+    if (serviceCount >= 2) {
+      return 8;
+    }
+    if (serviceCount >= 1) {
+      return 6;
+    }
+    return 0;
+  }
+
+  private calculateHighPtmPackagesScore(packageCount: number) {
+    if (packageCount >= 2) {
+      return 4;
+    }
+    if (packageCount >= 1) {
+      return 2;
+    }
+    return 0;
+  }
+
+  private calculateCloseRateScore(closeRate: number) {
+    if (closeRate >= 0.3) {
+      return 4;
+    }
+    if (closeRate >= 0.2) {
+      return 3;
+    }
+    if (closeRate >= 0.1) {
+      return 2;
+    }
+    return 0;
+  }
+
+  private calculateRevenueScore(revenueThousand: number) {
+    if (revenueThousand >= 1000) {
+      return 30;
+    }
+    if (revenueThousand >= 800) {
+      return 25;
+    }
+    if (revenueThousand >= 600) {
+      return 20;
+    }
+    if (revenueThousand >= 400) {
+      return 15;
+    }
+    if (revenueThousand >= 200) {
+      return 10;
+    }
+    if (revenueThousand >= 100) {
+      return 5;
+    }
+    return 0;
+  }
+
+  private calculateDailyChecklistScore(submittedJournalCount: number) {
+    if (submittedJournalCount >= 4) {
+      return 7;
+    }
+    if (submittedJournalCount >= 3) {
+      return 5;
+    }
+    if (submittedJournalCount >= 2) {
+      return 3;
+    }
+    if (submittedJournalCount >= 1) {
+      return 1;
+    }
+    return 0;
+  }
+
+  private toImportedMetricsResponse(item?: ManagerDailyScoreImport | null) {
+    if (!item) {
+      return null;
+    }
+    return {
+      id: item.id,
+      scoreDate: item.scoreDate,
+      employeeId: item.employeeId,
+      employeeCode: item.employeeCode || item.employee?.employeeCode || '',
+      employeeName: item.employee?.fullName || '',
+      unitId: item.unitId,
+      unitName: item.unit?.name || '',
+      successfulCareCalls: this.normalizeNumber(item.successfulCareCalls),
+      successfulServices: this.normalizeNumber(item.successfulServices),
+      highPtmPackages: this.normalizeNumber(item.highPtmPackages),
+      personalRevenueThousand: this.normalizeNumber(item.personalRevenueThousand),
+      sourceFileName: item.sourceFileName || '',
+      importedByName: item.importedBy?.fullName || '',
+      updatedAt: item.updatedAt,
+    };
+  }
+
+  private async getImportedMetrics(employeeId: string, scoreDate: string) {
+    return this.importsRepository.findOne({
+      where: {
+        employeeId,
+        scoreDate,
+      },
+    });
   }
 
   private async getEmployeeByScope(currentUser: any, employeeId: string) {
@@ -364,9 +544,217 @@ export class ManagerDailyScoresService {
       id: user.id,
       fullName: user.fullName,
       username: user.username,
+      employeeCode: user.employeeCode || '',
       unitId: user.unitId,
       unitName: user.unit?.name || '',
     }));
+  }
+
+  async downloadImportPerformanceTemplate() {
+    const workbook = XLSX.utils.book_new();
+    const templateRows = [
+      {
+        'Ngày chấm điểm': '2026-06-11',
+        'Mã nhân viên': 'NV001',
+        'Số cuộc gọi CSKH thành công': 80,
+        'Số dịch vụ thành công': 3,
+        'Số gói cao PTM': 1,
+        'Doanh thu cá nhân (VND)': 1250000,
+      },
+      {
+        'Ngày chấm điểm': '2026-06-11',
+        'Mã nhân viên': 'NV002',
+        'Số cuộc gọi CSKH thành công': 100,
+        'Số dịch vụ thành công': 2,
+        'Số gói cao PTM': 0,
+        'Doanh thu cá nhân (VND)': 980000,
+      },
+    ];
+    const guideRows = [
+      {
+        'Tên cột': 'Ngày chấm điểm',
+        'Bắt buộc': 'Có',
+        'Giải thích': 'Ngày dữ liệu theo định dạng YYYY-MM-DD',
+      },
+      {
+        'Tên cột': 'Mã nhân viên',
+        'Bắt buộc': 'Có',
+        'Giải thích': 'Mã nhân viên để ánh xạ vào trường user.employeeCode trong hệ thống',
+      },
+      {
+        'Tên cột': 'Số cuộc gọi CSKH thành công',
+        'Bắt buộc': 'Có',
+        'Giải thích': 'Dành cho TT CSKH, nhập số cuộc gọi CSKH thành công trong ngày',
+      },
+      {
+        'Tên cột': 'Số dịch vụ thành công',
+        'Bắt buộc': 'Có',
+        'Giải thích': 'Nhập số dịch vụ thành công trong ngày',
+      },
+      {
+        'Tên cột': 'Số gói cao PTM',
+        'Bắt buộc': 'Có',
+        'Giải thích': 'Nhập số gói cao PTM trong ngày',
+      },
+      {
+        'Tên cột': 'Doanh thu cá nhân (VND)',
+        'Bắt buộc': 'Có',
+        'Giải thích': 'Nhập đúng doanh thu thực tế theo VND, ví dụ 1.250.000 VND thì nhập 1250000; hệ thống sẽ tự quy đổi sang ngàn đồng khi tính điểm',
+      },
+      {
+        'Tên cột': 'Lưu ý',
+        'Bắt buộc': '',
+        'Giải thích': 'Chỉ cần điền đúng 6 cột trên tại sheet dữ liệu, hệ thống sẽ import cho toàn hệ thống theo mã nhân viên',
+      },
+    ];
+
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(templateRows), 'Du lieu import');
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(guideRows), 'Huong dan');
+
+    return {
+      buffer: XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }),
+      fileName: 'mau-import-so-lieu-cham-diem.xlsx',
+    };
+  }
+
+  async importPerformanceData(currentUser: any, file: any) {
+    if (![Role.PROVINCIAL_VIEWER, Role.ADMIN].includes(currentUser.role)) {
+      throw new ForbiddenException('Chỉ tài khoản thống kê toàn tỉnh hoặc admin mới được import');
+    }
+    if (!file) {
+      throw new BadRequestException('Thiếu file Excel');
+    }
+
+    const workbook = XLSX.read(file.buffer, { type: 'buffer' });
+    const firstSheetName = workbook.SheetNames[0];
+    const firstSheet = workbook.Sheets[firstSheetName];
+    const rows = XLSX.utils.sheet_to_json(firstSheet, {
+      defval: '',
+      raw: false,
+    }) as any[];
+
+    if (!rows.length) {
+      throw new BadRequestException('File Excel không có dữ liệu');
+    }
+
+    const imported = [];
+    const skipped = [];
+
+    for (const row of rows) {
+      const scoreDate = this.toDateKey(
+        String(
+          row.scoreDate ??
+            row['Ngày chấm điểm'] ??
+            row.ngay ??
+            row.date ??
+            row.score_date ??
+            '',
+        ).trim(),
+      );
+      const employeeCode = String(
+        row.employeeCode ??
+          row['Mã nhân viên'] ??
+          row.maNhanVien ??
+          row.maNV ??
+          row.employee_code ??
+          '',
+      ).trim();
+      const successfulCareCalls = this.parseImportedNumber(
+        row.successfulCareCalls ??
+          row['Số cuộc gọi CSKH thành công'] ??
+          row.soCuocGoiCSKHThanhCong ??
+          row.soCuocGoiCSKH ??
+          '',
+      );
+      const successfulServices = this.parseImportedNumber(
+        row.successfulServices ??
+          row['Số dịch vụ thành công'] ??
+          row.soDichVuThanhCong ??
+          row.soDichVu ??
+          '',
+      );
+      const highPtmPackages = this.parseImportedNumber(
+        row.highPtmPackages ?? row['Số gói cao PTM'] ?? row.soGoiCaoPTM ?? row.soGoiCao ?? '',
+      );
+      const personalRevenueVnd = this.parseImportedNumber(
+        row['Doanh thu cá nhân (VND)'] ?? row.doanhThuCaNhanVND ?? row.doanhThuVND ?? '',
+      );
+      const personalRevenueThousandRaw = this.parseImportedNumber(
+        row.personalRevenueThousand ??
+          row['Doanh thu cá nhân (Ngàn đồng)'] ??
+          row.doanhThuCaNhanNganDong ??
+          row.doanhThuNganDong ??
+          row.doanhThuCaNhan ??
+          '',
+      );
+      const personalRevenueThousand = !Number.isNaN(personalRevenueVnd)
+        ? Number((personalRevenueVnd / 1000).toFixed(2))
+        : personalRevenueThousandRaw;
+
+      if (!scoreDate || !employeeCode) {
+        skipped.push({ employeeCode, scoreDate, reason: 'Thiếu ngày hoặc mã nhân viên' });
+        continue;
+      }
+      if (
+        [successfulCareCalls, successfulServices, highPtmPackages, personalRevenueThousand].some(
+          (value) => Number.isNaN(value),
+        )
+      ) {
+        skipped.push({ employeeCode, scoreDate, reason: 'Có chỉ tiêu không phải số hợp lệ' });
+        continue;
+      }
+
+      const employee = await this.usersRepository.findOne({
+        where: {
+          employeeCode,
+          role: Role.EMPLOYEE,
+        },
+      });
+
+      if (!employee) {
+        skipped.push({ employeeCode, scoreDate, reason: 'Không tìm thấy nhân viên theo mã' });
+        continue;
+      }
+
+      let target = await this.importsRepository.findOne({
+        where: {
+          employeeId: employee.id,
+          scoreDate,
+        },
+      });
+
+      if (!target) {
+        target = this.importsRepository.create({
+          employeeId: employee.id,
+          unitId: employee.unitId,
+          scoreDate,
+        });
+      }
+
+      target.employeeCode = employee.employeeCode || employeeCode;
+      target.successfulCareCalls = String(successfulCareCalls);
+      target.successfulServices = String(successfulServices);
+      target.highPtmPackages = String(highPtmPackages);
+      target.personalRevenueThousand = String(personalRevenueThousand);
+      target.sourceFileName = String(file.originalname || '');
+      target.importedById = currentUser.sub || currentUser.id;
+      await this.importsRepository.save(target);
+
+      imported.push({
+        employeeId: employee.id,
+        employeeCode: target.employeeCode,
+        fullName: employee.fullName,
+        scoreDate,
+      });
+    }
+
+    return {
+      totalRows: rows.length,
+      importedCount: imported.length,
+      skippedCount: skipped.length,
+      imported,
+      skipped,
+    };
   }
 
   async getEntry(currentUser: any, employeeId: string, scoreDate: string) {
@@ -378,6 +766,7 @@ export class ManagerDailyScoresService {
     if (!normalizedDate) {
       throw new BadRequestException('scoreDate không hợp lệ');
     }
+    const importedMetrics = await this.getImportedMetrics(employeeId, normalizedDate);
 
     const sheet = await this.sheetsRepository.findOne({
       where: {
@@ -392,10 +781,12 @@ export class ManagerDailyScoresService {
           id: employee.id,
           fullName: employee.fullName,
           username: employee.username,
+          employeeCode: employee.employeeCode || '',
           unitId: employee.unitId,
           unitName: employee.unit?.name || '',
         },
         sheet: null,
+        importedMetrics: this.toImportedMetricsResponse(importedMetrics),
       };
     }
 
@@ -412,6 +803,7 @@ export class ManagerDailyScoresService {
         id: employee.id,
         fullName: employee.fullName,
         username: employee.username,
+        employeeCode: employee.employeeCode || '',
         unitId: employee.unitId,
         unitName: employee.unit?.name || '',
       },
@@ -430,6 +822,7 @@ export class ManagerDailyScoresService {
           score: this.normalizeNumber(item.score),
         })),
       },
+      importedMetrics: this.toImportedMetricsResponse(importedMetrics),
     };
   }
 
@@ -829,10 +1222,13 @@ export class ManagerDailyScoresService {
 
   async getTncCompetition(
     currentUser: any,
-    filters: { fromDate?: string; toDate?: string; unitId?: string },
+    filters: { fromDate?: string; toDate?: string; unitId?: string; useApprovedScore?: string | boolean },
   ) {
     const fromDate = this.toDateKey(filters.fromDate || '');
     const toDate = this.toDateKey(filters.toDate || '');
+    const useApprovedScore =
+      filters.useApprovedScore === true ||
+      String(filters.useApprovedScore || '').toLowerCase() === 'true';
     if (!fromDate || !toDate) {
       throw new BadRequestException('Vui lòng chọn từ ngày và đến ngày');
     }
@@ -865,6 +1261,7 @@ export class ManagerDailyScoresService {
           fromDate,
           toDate,
           unitId: filters.unitId || null,
+          useApprovedScore,
         },
         validDayCount,
         holidayDates: validDateKeys.length > 0 ? validDateKeys.filter(() => false) : [],
@@ -887,15 +1284,98 @@ export class ManagerDailyScoresService {
         }
         return String(a.fullName || '').localeCompare(String(b.fullName || ''), 'vi');
       });
+    const employeeIds = employees.map((employee) => employee.id);
+
+    if (employeeIds.length === 0) {
+      return {
+        filters: {
+          fromDate,
+          toDate,
+          unitId: filters.unitId || null,
+          useApprovedScore,
+        },
+        validDayCount,
+        excludedHolidayDates: Array.from(holidayDates).filter((date) => date >= fromDate && date <= toDate),
+        learningRows: [],
+        behaviorRows: [],
+        performanceRows: [],
+        collectiveRows: [],
+      };
+    }
 
     const sheets = (await this.sheetsRepository.find({
       relations: ['items'],
       order: { scoreDate: 'DESC' },
     })).filter(
       (sheet) =>
-        sheet.status === 'APPROVED' &&
         includedUnitIds.includes(sheet.unitId) &&
         validDateKeySet.has(this.toDateKey(sheet.scoreDate || '')),
+    );
+
+    const importedMetrics = (await this.importsRepository.find({
+      where: {
+        employeeId: In(employeeIds),
+        scoreDate: Between(fromDate, toDate),
+      },
+    })).filter((item) => validDateKeySet.has(this.toDateKey(item.scoreDate || '')));
+
+    const importedMetricsMap = new Map(
+      importedMetrics.map((item) => [
+        this.buildEmployeeDateKey(item.employeeId, this.toDateKey(item.scoreDate || '')),
+        item,
+      ]),
+    );
+
+    const behaviorChecklistLogs = (await this.behaviorChecklistLogsRepository.find({
+      where: {
+        userId: In(employeeIds),
+        logDate: Between(fromDate, toDate),
+      },
+    })).filter((item) => validDateKeySet.has(this.toDateKey(item.logDate || '')));
+    const mindsetLogs = (await this.mindsetLogsRepository.find({
+      where: {
+        userId: In(employeeIds),
+        logDate: Between(fromDate, toDate),
+      },
+    })).filter((item) => validDateKeySet.has(this.toDateKey(item.logDate || '')));
+    const salesActivityLogs = (await this.salesActivityReportsRepository.find({
+      where: {
+        userId: In(employeeIds),
+        logDate: Between(fromDate, toDate),
+      },
+    })).filter((item) => validDateKeySet.has(this.toDateKey(item.logDate || '')));
+    const endOfDayLogs = (await this.endOfDayLogsRepository.find({
+      where: {
+        userId: In(employeeIds),
+        logDate: Between(fromDate, toDate),
+      },
+    })).filter((item) => validDateKeySet.has(this.toDateKey(item.logDate || '')));
+
+    const form2SubmittedKeys = new Set(
+      behaviorChecklistLogs.map((item) =>
+        this.buildEmployeeDateKey(item.userId, this.toDateKey(item.logDate || '')),
+      ),
+    );
+    const form3SubmittedKeys = new Set(
+      mindsetLogs.map((item) => this.buildEmployeeDateKey(item.userId, this.toDateKey(item.logDate || ''))),
+    );
+    const form4SubmittedKeys = new Set(
+      salesActivityLogs.map((item) =>
+        this.buildEmployeeDateKey(item.userId, this.toDateKey(item.logDate || '')),
+      ),
+    );
+    const form5SubmittedKeys = new Set(
+      endOfDayLogs.map((item) => this.buildEmployeeDateKey(item.userId, this.toDateKey(item.logDate || ''))),
+    );
+
+    const managerCoachingLogs = (await this.managerCoachingLogsRepository.find()).filter((item) => {
+      const coachingDateKey = this.toDateKey(new Date(item.coachingTime).toISOString());
+      return employeeIds.includes(item.coachedUserId) && validDateKeySet.has(coachingDateKey);
+    });
+    const directorEvaluatedKeys = new Set(
+      managerCoachingLogs.map((item) =>
+        this.buildEmployeeDateKey(item.coachedUserId, this.toDateKey(new Date(item.coachingTime).toISOString())),
+      ),
     );
 
     const employeeStatsMap = new Map<
@@ -948,40 +1428,115 @@ export class ManagerDailyScoresService {
       });
     });
 
-    sheets.forEach((sheet) => {
-      const employeeId = sheet.employee?.id;
-      if (!employeeId) {
-        return;
-      }
-      const employeeStats = employeeStatsMap.get(employeeId);
+    const sheetMap = new Map(
+      sheets.map((sheet) => [
+        this.buildEmployeeDateKey(sheet.employeeId, this.toDateKey(sheet.scoreDate || '')),
+        sheet,
+      ]),
+    );
+
+    employees.forEach((employee) => {
+      const employeeStats = employeeStatsMap.get(employee.id);
       if (!employeeStats) {
         return;
       }
 
-      let learningSum = 0;
-      let behaviorSum = 0;
-      let performanceSum = 0;
-      (sheet.items || []).forEach((item) => {
-        const sectionCode = item.criterion?.sectionCode;
-        const score = this.normalizeNumber(item.score);
-        if (sectionCode === 'LEARNING') {
-          learningSum += score;
-        } else if (sectionCode === 'BEHAVIOR') {
-          behaviorSum += score;
-        } else if (sectionCode === 'PERFORMANCE') {
-          performanceSum += score;
+      validDateKeys.forEach((scoreDateKey) => {
+        const employeeDateKey = this.buildEmployeeDateKey(employee.id, scoreDateKey);
+        const sheet = sheetMap.get(employeeDateKey);
+        const importedMetric = importedMetricsMap.get(employeeDateKey);
+        const itemByCode = new Map(
+          (sheet?.items || [])
+            .filter((item) => !!item.criterion?.itemCode)
+            .map((item) => [String(item.criterion?.itemCode || ''), item]),
+        );
+
+        const isApprovedSheet = sheet?.status === 'APPROVED';
+        const getSelfScore = (itemCode: string) =>
+          this.normalizeNumber(itemByCode.get(itemCode)?.selfScore || 0);
+        const getApprovedScore = (itemCode: string) =>
+          isApprovedSheet ? this.normalizeNumber(itemByCode.get(itemCode)?.score || 0) : 0;
+        const getSelectedScore = (itemCode: string) =>
+          useApprovedScore ? getApprovedScore(itemCode) : getSelfScore(itemCode);
+        const getEmployeeInputNumber = (itemCode: string) =>
+          this.safeNumericInput(itemByCode.get(itemCode)?.employeeNote || 0);
+
+        const learningSum = Number(
+          (sheet?.items || [])
+            .filter((item) => item.criterion?.sectionCode === 'LEARNING')
+            .reduce(
+              (sum, item) =>
+                sum +
+                this.normalizeNumber(
+                  useApprovedScore ? (isApprovedSheet ? item.score : 0) : item.selfScore,
+                ),
+              0,
+            )
+            .toFixed(2),
+        );
+
+        const successfulCareCallsRaw = this.normalizeImportedMetric(
+          importedMetric?.successfulCareCalls,
+        );
+        const successfulServicesRaw = this.normalizeImportedMetric(
+          importedMetric?.successfulServices,
+        );
+        const highPtmPackagesRaw = this.normalizeImportedMetric(
+          importedMetric?.highPtmPackages,
+        );
+        const personalRevenueThousandRaw = this.normalizeImportedMetric(
+          importedMetric?.personalRevenueThousand,
+        );
+        const customersContactedRaw = getEmployeeInputNumber(BEHAVIOR_CUSTOMERS_CONTACTED_CODE);
+        const isCustomerCareEmployee = this.isCustomerCareUnit(employee.unit);
+        const submittedJournalCount = [
+          form2SubmittedKeys,
+          form3SubmittedKeys,
+          form4SubmittedKeys,
+          form5SubmittedKeys,
+        ].reduce((count, submittedKeys) => count + (submittedKeys.has(employeeDateKey) ? 1 : 0), 0);
+
+        const behaviorSum = Number(
+          (
+            getSelectedScore(BEHAVIOR_SALES_PLAN_CODE) +
+            getSelectedScore(BEHAVIOR_PREPARE_CONSULT_CODE) +
+            getSelectedScore(BEHAVIOR_CUSTOMERS_CONTACTED_CODE) +
+            getSelectedScore(BEHAVIOR_OLD_CUSTOMERS_CONSULTED_CODE) +
+            (isCustomerCareEmployee
+              ? this.calculateSuccessfulCareCallsScore(successfulCareCallsRaw)
+              : 0) +
+            this.calculateDailyChecklistScore(submittedJournalCount) +
+            (directorEvaluatedKeys.has(employeeDateKey) ? 9 : 0)
+          ).toFixed(2),
+        );
+
+        const closeRateDenominator = isCustomerCareEmployee
+          ? successfulCareCallsRaw
+          : customersContactedRaw;
+        const closeRate =
+          closeRateDenominator > 0 ? successfulServicesRaw / closeRateDenominator : 0;
+
+        const performanceSum = Number(
+          (
+            this.calculateSuccessfulServicesScore(successfulServicesRaw) +
+            this.calculateHighPtmPackagesScore(highPtmPackagesRaw) +
+            this.calculateCloseRateScore(closeRate) +
+            this.calculateRevenueScore(personalRevenueThousandRaw) +
+            getSelectedScore(PERFORMANCE_RETURNING_REFERRED_CODE)
+          ).toFixed(2),
+        );
+        const dailyTotalScore = Number((learningSum + behaviorSum + performanceSum).toFixed(2));
+
+        employeeStats.learningTotal += learningSum;
+        employeeStats.behaviorTotal += behaviorSum;
+        employeeStats.performanceTotal += performanceSum;
+        employeeStats.totalScore += dailyTotalScore;
+
+        const unitStats = unitStatsMap.get(employeeStats.unitId);
+        if (unitStats) {
+          unitStats.totalScore += dailyTotalScore;
         }
       });
-
-      employeeStats.learningTotal += learningSum;
-      employeeStats.behaviorTotal += behaviorSum;
-      employeeStats.performanceTotal += performanceSum;
-      employeeStats.totalScore += this.normalizeNumber(sheet.totalScore);
-
-      const unitStats = unitStatsMap.get(employeeStats.unitId);
-      if (unitStats) {
-        unitStats.totalScore += this.normalizeNumber(sheet.totalScore);
-      }
     });
 
     const toCompetitionRow = (
@@ -1035,6 +1590,7 @@ export class ManagerDailyScoresService {
         fromDate,
         toDate,
         unitId: filters.unitId || null,
+        useApprovedScore,
       },
       validDayCount,
       excludedHolidayDates: Array.from(holidayDates).filter((date) => date >= fromDate && date <= toDate),
@@ -1047,7 +1603,7 @@ export class ManagerDailyScoresService {
 
   async exportTncCompetitionFile(
     currentUser: any,
-    filters: { fromDate?: string; toDate?: string; unitId?: string },
+    filters: { fromDate?: string; toDate?: string; unitId?: string; useApprovedScore?: string | boolean },
   ) {
     const data = await this.getTncCompetition(currentUser, filters);
     const workbook = XLSX.utils.book_new();
@@ -1055,6 +1611,7 @@ export class ManagerDailyScoresService {
     const metaRows = [
       ['Từ ngày', data.filters.fromDate || ''],
       ['Đến ngày', data.filters.toDate || ''],
+      ['Nguồn điểm tự chấm', data.filters.useApprovedScore ? 'Diem quan ly duyet' : 'Diem nhan vien tu cham'],
       ['Số ngày hợp lệ', Number(data.validDayCount || 0)],
       ['Ngày nghỉ bị loại', (data.excludedHolidayDates || []).join(', ') || ''],
       [],

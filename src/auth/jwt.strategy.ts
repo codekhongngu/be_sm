@@ -21,6 +21,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     unitId: string;
     unitName?: string;
     fullName: string;
+    canManageCoaching?: boolean;
   }) {
     return {
       id: payload.sub,
@@ -29,6 +30,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       unitId: payload.unitId,
       unitName: payload.unitName,
       fullName: payload.fullName,
+      canManageCoaching: !!payload.canManageCoaching,
     };
   }
 }

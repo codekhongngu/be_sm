@@ -1,4 +1,4 @@
-import { IsEnum, IsOptional, IsString, IsUUID, MinLength } from 'class-validator';
+import { IsBoolean, IsEnum, IsOptional, IsString, IsUUID, MinLength } from 'class-validator';
 import { Role } from 'src/common/enums/role.enum';
 
 export class CreateUserDto {
@@ -25,4 +25,8 @@ export class CreateUserDto {
   @IsOptional()
   @IsString()
   telegramChatId?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  canManageCoaching?: boolean;
 }

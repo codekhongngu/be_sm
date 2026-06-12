@@ -51,7 +51,7 @@ export class BehaviorController {
   }
 
   @Get('manager/coaching-logs')
-  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  @Roles(Role.EMPLOYEE, Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   getManagerCoachingLogs(
     @Req() req: any,
     @Query('fromDate') fromDate?: string,
@@ -68,19 +68,19 @@ export class BehaviorController {
   }
 
   @Get('manager/coaching-logs/employees')
-  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  @Roles(Role.EMPLOYEE, Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   getManagerCoachingEmployees(@Req() req: any) {
     return this.behaviorService.getManagerCoachingEmployees(req.user);
   }
 
   @Post('manager/coaching-logs')
-  @Roles(Role.MANAGER, Role.ADMIN)
+  @Roles(Role.EMPLOYEE, Role.MANAGER, Role.ADMIN)
   createManagerCoachingLog(@Req() req: any, @Body() dto: CreateManagerCoachingLogDto) {
     return this.behaviorService.createManagerCoachingLog(req.user, dto);
   }
 
   @Patch('manager/coaching-logs/:id')
-  @Roles(Role.MANAGER, Role.ADMIN)
+  @Roles(Role.EMPLOYEE, Role.MANAGER, Role.ADMIN)
   updateManagerCoachingLog(
     @Param('id') id: string,
     @Req() req: any,
@@ -90,13 +90,13 @@ export class BehaviorController {
   }
 
   @Delete('manager/coaching-logs/:id')
-  @Roles(Role.MANAGER, Role.ADMIN)
+  @Roles(Role.EMPLOYEE, Role.MANAGER, Role.ADMIN)
   deleteManagerCoachingLog(@Param('id') id: string, @Req() req: any) {
     return this.behaviorService.deleteManagerCoachingLog(id, req.user);
   }
 
   @Get('manager/coaching-logs/export')
-  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  @Roles(Role.EMPLOYEE, Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
   async exportManagerCoachingLogs(
     @Req() req: any,
     @Res() res: Response,
@@ -249,6 +249,30 @@ export class BehaviorController {
     @Query('keyword') keyword?: string,
   ) {
     const file = await this.behaviorService.exportApprovedJournalsForms2345File(req.user, {
+      fromDate,
+      toDate,
+      unitId,
+      keyword,
+    });
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
+    return res.send(file.buffer);
+  }
+
+  @Get('manager/journals/approved/export-forms-7-9-12')
+  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  async exportApprovedJournalsForms7912(
+    @Req() req: any,
+    @Res() res: Response,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+    @Query('unitId') unitId?: string,
+    @Query('keyword') keyword?: string,
+  ) {
+    const file = await this.behaviorService.exportApprovedJournalsForms7912File(req.user, {
       fromDate,
       toDate,
       unitId,
