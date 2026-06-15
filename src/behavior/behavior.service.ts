@@ -64,6 +64,62 @@ const COACHING_PHASE_FORM_MAP: Record<string, string[]> = {
 };
 
 const COACHING_FORM_IDS = ['coaching_form_1', 'coaching_form_2'];
+const DEBUG_PREFIX = '[DEBUG]';
+const DEBUG_SESSION_ID = 'journals-7912-500';
+const DEBUG_ENV_PATH = `.dbg/${DEBUG_SESSION_ID}.env`;
+
+function reportDebugEvent(payload: {
+  runId?: string;
+  hypothesisId: string;
+  location: string;
+  msg: string;
+  data?: Record<string, any>;
+  traceId?: string;
+}) {
+  try {
+    const fs = require('fs');
+    const http = require('http');
+    const https = require('https');
+    let debugServerUrl = 'http://127.0.0.1:7777/event';
+    let sessionId = DEBUG_SESSION_ID;
+    try {
+      const envContent = fs.readFileSync(DEBUG_ENV_PATH, 'utf8');
+      debugServerUrl =
+        envContent.match(/DEBUG_SERVER_URL=(.+)/)?.[1]?.trim() || debugServerUrl;
+      sessionId =
+        envContent.match(/DEBUG_SESSION_ID=(.+)/)?.[1]?.trim() || sessionId;
+    } catch {}
+
+    const url = new URL(debugServerUrl);
+    const body = JSON.stringify({
+      sessionId,
+      runId: payload.runId || 'pre-fix',
+      hypothesisId: payload.hypothesisId,
+      location: payload.location,
+      msg: payload.msg.startsWith(DEBUG_PREFIX) ? payload.msg : `${DEBUG_PREFIX} ${payload.msg}`,
+      data: payload.data || {},
+      traceId: payload.traceId,
+      ts: Date.now(),
+    });
+    const client = url.protocol === 'https:' ? https : http;
+    const req = client.request(
+      {
+        hostname: url.hostname,
+        port: url.port,
+        path: url.pathname,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+        },
+      },
+      () => {},
+    );
+    req.on('error', () => {});
+    req.write(body);
+    req.end();
+  } catch {}
+}
 
 type JourneyFormDefinition = {
   key: string;
@@ -257,6 +313,59 @@ export class BehaviorService implements OnModuleInit {
     BusinessTimeUtil.LOCKED_ENTRY_DATES = new Set(
       this.parseLockedEntryDates(lockedDatesConfig?.value),
     );
+  }
+
+  private async hasDatabaseTable(tableName: string) {
+    const rows = await this.journalsRepository.query(
+      `
+        SELECT EXISTS (
+          SELECT 1
+          FROM information_schema.tables
+          WHERE table_schema = 'public'
+            AND table_name = $1
+        ) AS "exists"
+      `,
+      [tableName],
+    );
+    return !!rows?.[0]?.exists;
+  }
+
+  private async getExistingDatabaseColumns(tableName: string, columnNames: string[]) {
+    if (!columnNames.length) {
+      return new Set<string>();
+    }
+
+    const placeholders = columnNames.map((_, index) => `$${index + 2}`).join(', ');
+    const rows = await this.journalsRepository.query(
+      `
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = $1
+          AND column_name IN (${placeholders})
+      `,
+      [tableName, ...columnNames],
+    );
+
+    return new Set<string>(rows.map((row: { column_name: string }) => row.column_name));
+  }
+
+  private sanitizeExcelCellValue(value: any) {
+    if (typeof value !== 'string') {
+      return value;
+    }
+
+    return value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, '');
+  }
+
+  private sanitizeExcelRows<T extends Record<string, any>>(rows: T[]): T[] {
+    return rows.map((row) => {
+      const sanitizedEntries = Object.entries(row).map(([key, value]) => [
+        key,
+        this.sanitizeExcelCellValue(value),
+      ]);
+      return Object.fromEntries(sanitizedEntries) as T;
+    });
   }
 
   private normalizeCoachingDateFilter(value?: string) {
@@ -3461,9 +3570,143 @@ export class BehaviorService implements OnModuleInit {
     currentUser: any,
     filters: { fromDate?: string; toDate?: string; unitId?: string; keyword?: string },
   ) {
-    let query = `
+    const traceId = `exp7912-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    // #region debug-point A:export-7912-entry
+    reportDebugEvent({
+      hypothesisId: 'A',
+      traceId,
+      location: 'behavior.service.ts:exportApprovedJournalsForms7912File:entry',
+      msg: 'export 7/9/12 requested',
+      data: {
+        role: currentUser?.role,
+        unitId: currentUser?.unitId,
+        userId: currentUser?.id || currentUser?.sub,
+        filters,
+      },
+    });
+    // #endregion
+    try {
+      const form7TableName = 'phase_3_standard_logs';
+      const form9TableName = 'income_breakthrough_logs';
+      const form12TableName = 'career_commitment_logs';
+
+      const [hasForm7Table, hasForm9Table, hasForm12Table] = await Promise.all([
+        this.hasDatabaseTable(form7TableName),
+        this.hasDatabaseTable(form9TableName),
+        this.hasDatabaseTable(form12TableName),
+      ]);
+
+      const [form7Columns, form9Columns, form12Columns] = await Promise.all([
+        hasForm7Table
+          ? this.getExistingDatabaseColumns(form7TableName, [
+              'user_id',
+              'log_date',
+              'kept_standard',
+              'backslide_sign',
+              'solution',
+            ])
+          : Promise.resolve(new Set<string>()),
+        hasForm9Table
+          ? this.getExistingDatabaseColumns(form9TableName, [
+              'user_id',
+              'log_date',
+              'self_limit_area',
+              'proof_behavior',
+              'raise_standard',
+              'action_plan',
+            ])
+          : Promise.resolve(new Set<string>()),
+        hasForm12Table
+          ? this.getExistingDatabaseColumns(form12TableName, [
+              'user_id',
+              'log_date',
+              'declaration_text',
+              'commitment_signature',
+            ])
+          : Promise.resolve(new Set<string>()),
+      ]);
+
+      // #region debug-point A:export-7912-schema
+      reportDebugEvent({
+        hypothesisId: 'A',
+        traceId,
+        location: 'behavior.service.ts:exportApprovedJournalsForms7912File:schema',
+        msg: 'schema inspection completed',
+        data: {
+          hasForm7Table,
+          hasForm9Table,
+          hasForm12Table,
+          form7Columns: [...form7Columns],
+          form9Columns: [...form9Columns],
+          form12Columns: [...form12Columns],
+        },
+      });
+      // #endregion
+
+      const form7Join =
+        hasForm7Table && form7Columns.has('user_id') && form7Columns.has('log_date')
+          ? `
+      LEFT JOIN ${form7TableName} f7
+        ON f7.user_id::text = base.user_id
+        AND f7.log_date = base.log_date`
+          : '';
+      const form9Join =
+        hasForm9Table && form9Columns.has('user_id') && form9Columns.has('log_date')
+          ? `
+      LEFT JOIN ${form9TableName} f9
+        ON f9.user_id::text = base.user_id
+        AND f9.log_date = base.log_date`
+          : '';
+      const form12Join =
+        hasForm12Table && form12Columns.has('user_id') && form12Columns.has('log_date')
+          ? `
+      LEFT JOIN ${form12TableName} f12
+        ON f12.user_id::text = base.user_id
+        AND f12.log_date = base.log_date`
+          : '';
+
+      const form7Select = [
+        `CASE WHEN r7.user_id IS NOT NULL THEN 'Đã duyệt' ELSE 'Chưa duyệt' END AS "Mẫu 7 - Trạng thái"`,
+        form7Join && form7Columns.has('kept_standard')
+          ? `COALESCE(f7.kept_standard, '') AS "Mẫu 7 - Chuẩn đã giữ"`
+          : `'' AS "Mẫu 7 - Chuẩn đã giữ"`,
+        form7Join && form7Columns.has('backslide_sign')
+          ? `COALESCE(f7.backslide_sign, '') AS "Mẫu 7 - Dấu hiệu tụt chuẩn"`
+          : `'' AS "Mẫu 7 - Dấu hiệu tụt chuẩn"`,
+        form7Join && form7Columns.has('solution')
+          ? `COALESCE(f7.solution, '') AS "Mẫu 7 - Cách xử lý"`
+          : `'' AS "Mẫu 7 - Cách xử lý"`,
+      ].join(',\n        ');
+
+      const form9Select = [
+        `CASE WHEN r9.user_id IS NOT NULL THEN 'Đã duyệt' ELSE 'Chưa duyệt' END AS "Mẫu 9 - Trạng thái"`,
+        form9Join && form9Columns.has('self_limit_area')
+          ? `COALESCE(f9.self_limit_area, '') AS "Mẫu 9 - Tự giới hạn"`
+          : `'' AS "Mẫu 9 - Tự giới hạn"`,
+        form9Join && form9Columns.has('proof_behavior')
+          ? `COALESCE(f9.proof_behavior, '') AS "Mẫu 9 - Hành vi chứng minh"`
+          : `'' AS "Mẫu 9 - Hành vi chứng minh"`,
+        form9Join && form9Columns.has('raise_standard')
+          ? `COALESCE(f9.raise_standard, '') AS "Mẫu 9 - Nâng chuẩn"`
+          : `'' AS "Mẫu 9 - Nâng chuẩn"`,
+        form9Join && form9Columns.has('action_plan')
+          ? `COALESCE(f9.action_plan, '') AS "Mẫu 9 - Hành động"`
+          : `'' AS "Mẫu 9 - Hành động"`,
+      ].join(',\n        ');
+
+      const form12Select = [
+        `CASE WHEN r12.user_id IS NOT NULL THEN 'Đã duyệt' ELSE 'Chưa duyệt' END AS "Mẫu 12 - Trạng thái"`,
+        form12Join && form12Columns.has('declaration_text')
+          ? `COALESCE(f12.declaration_text, '') AS "Mẫu 12 - Tuyên ngôn"`
+          : `'' AS "Mẫu 12 - Tuyên ngôn"`,
+        form12Join && form12Columns.has('commitment_signature')
+          ? `COALESCE(f12.commitment_signature, '') AS "Mẫu 12 - Ký tên"`
+          : `'' AS "Mẫu 12 - Ký tên"`,
+      ].join(',\n        ');
+
+      let query = `
       WITH approved_forms AS (
-        SELECT d.user_id::uuid AS user_id, d.log_date, d.form_type
+        SELECT d.user_id::text AS user_id, d.log_date, d.form_type
         FROM daily_form_reviews d
         WHERE d.status = 'APPROVED'
           AND d.form_type IN ('FORM_7', 'FORM_9', 'FORM_12')
@@ -3479,82 +3722,133 @@ export class BehaviorService implements OnModuleInit {
         u."fullName" AS "Tên nhân viên",
         u.username AS "Tài khoản",
         u."employeeCode" AS "Mã nhân viên",
-        CASE WHEN r7.user_id IS NOT NULL THEN 'Đã duyệt' ELSE 'Chưa duyệt' END AS "Mẫu 7 - Trạng thái",
-        COALESCE(f7.kept_standard, '') AS "Mẫu 7 - Chuẩn đã giữ",
-        COALESCE(f7.backslide_sign, '') AS "Mẫu 7 - Dấu hiệu tụt chuẩn",
-        COALESCE(f7.solution, '') AS "Mẫu 7 - Cách xử lý",
-        CASE WHEN r9.user_id IS NOT NULL THEN 'Đã duyệt' ELSE 'Chưa duyệt' END AS "Mẫu 9 - Trạng thái",
-        COALESCE(f9.self_limit_area, '') AS "Mẫu 9 - Tự giới hạn",
-        COALESCE(f9.proof_behavior, '') AS "Mẫu 9 - Hành vi chứng minh",
-        COALESCE(f9.raise_standard, '') AS "Mẫu 9 - Nâng chuẩn",
-        COALESCE(f9.action_plan, '') AS "Mẫu 9 - Hành động",
-        CASE WHEN r12.user_id IS NOT NULL THEN 'Đã duyệt' ELSE 'Chưa duyệt' END AS "Mẫu 12 - Trạng thái",
-        COALESCE(f12.declaration_text, '') AS "Mẫu 12 - Tuyên ngôn",
-        COALESCE(f12.commitment_signature, '') AS "Mẫu 12 - Ký tên"
+        ${form7Select},
+        ${form9Select},
+        ${form12Select}
       FROM base_dates base
-      INNER JOIN users u ON u.id = base.user_id
+      INNER JOIN users u ON u.id::text = base.user_id
       INNER JOIN units un ON un.id = u."unitId"
       LEFT JOIN approved_forms r7
         ON r7.user_id = base.user_id
         AND r7.log_date = base.log_date
         AND r7.form_type = 'FORM_7'
-      LEFT JOIN phase3_standard_logs f7
-        ON f7.user_id = base.user_id
-        AND f7.log_date = base.log_date
+      ${form7Join}
       LEFT JOIN approved_forms r9
         ON r9.user_id = base.user_id
         AND r9.log_date = base.log_date
         AND r9.form_type = 'FORM_9'
-      LEFT JOIN income_breakthrough_logs f9
-        ON f9.user_id = base.user_id
-        AND f9.log_date = base.log_date
+      ${form9Join}
       LEFT JOIN approved_forms r12
         ON r12.user_id = base.user_id
         AND r12.log_date = base.log_date
         AND r12.form_type = 'FORM_12'
-      LEFT JOIN career_commitment_logs f12
-        ON f12.user_id = base.user_id
-        AND f12.log_date = base.log_date
+      ${form12Join}
       WHERE u.role = 'EMPLOYEE'
         AND (un."excludeFromStatistics" IS NULL OR un."excludeFromStatistics" = false)
     `;
 
-    const params: any[] = [];
-    let paramIndex = 1;
+      const params: any[] = [];
+      let paramIndex = 1;
 
-    if (filters.fromDate) {
-      query += ` AND base.log_date >= $${paramIndex++}`;
-      params.push(filters.fromDate);
-    }
-    if (filters.toDate) {
-      query += ` AND base.log_date <= $${paramIndex++}`;
-      params.push(filters.toDate);
-    }
-    if (currentUser.role === Role.MANAGER) {
-      query += ` AND u."unitId" = $${paramIndex++}`;
-      params.push(currentUser.unitId);
-    } else if (filters.unitId) {
-      query += ` AND u."unitId" = $${paramIndex++}`;
-      params.push(filters.unitId);
-    }
-    const keyword = String(filters.keyword || '').trim().toLowerCase();
-    if (keyword) {
-      query += ` AND (LOWER(u."fullName") LIKE $${paramIndex} OR LOWER(u.username) LIKE $${paramIndex++})`;
-      params.push(`%${keyword}%`);
-    }
+      if (filters.fromDate) {
+        query += ` AND base.log_date >= $${paramIndex++}`;
+        params.push(filters.fromDate);
+      }
+      if (filters.toDate) {
+        query += ` AND base.log_date <= $${paramIndex++}`;
+        params.push(filters.toDate);
+      }
+      if (currentUser.role === Role.MANAGER) {
+        query += ` AND u."unitId" = $${paramIndex++}`;
+        params.push(currentUser.unitId);
+      } else if (filters.unitId) {
+        query += ` AND u."unitId" = $${paramIndex++}`;
+        params.push(filters.unitId);
+      }
+      const keyword = String(filters.keyword || '').trim().toLowerCase();
+      if (keyword) {
+        query += ` AND (LOWER(u."fullName") LIKE $${paramIndex} OR LOWER(u.username) LIKE $${paramIndex++})`;
+        params.push(`%${keyword}%`);
+      }
 
-    query += ` ORDER BY un.name ASC, u."fullName" ASC, base.log_date DESC`;
+      query += ` ORDER BY un.name ASC, u."fullName" ASC, base.log_date DESC`;
 
-    const rows = await this.journalsRepository.query(query, params);
-    const worksheet = XLSX.utils.json_to_sheet(rows);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Mau7912');
-    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+      // #region debug-point C:export-7912-before-query
+      reportDebugEvent({
+        hypothesisId: 'C',
+        traceId,
+        location: 'behavior.service.ts:exportApprovedJournalsForms7912File:before-query',
+        msg: 'about to execute export query',
+        data: {
+          params,
+          queryTail: query.slice(-1200),
+        },
+      });
+      // #endregion
+      const rows = await this.journalsRepository.query(query, params);
+      // #region debug-point C:export-7912-after-query
+      reportDebugEvent({
+        hypothesisId: 'C',
+        traceId,
+        location: 'behavior.service.ts:exportApprovedJournalsForms7912File:after-query',
+        msg: 'query executed',
+        data: {
+          rowCount: rows.length,
+          sampleRowKeys: rows[0] ? Object.keys(rows[0]) : [],
+        },
+      });
+      // #endregion
+      const sanitizedRows = this.sanitizeExcelRows(rows);
+      // #region debug-point B:export-7912-before-xlsx
+      reportDebugEvent({
+        hypothesisId: 'B',
+        traceId,
+        location: 'behavior.service.ts:exportApprovedJournalsForms7912File:before-xlsx',
+        msg: 'about to generate xlsx workbook',
+        data: {
+          rowCount: sanitizedRows.length,
+          firstRowPreview: sanitizedRows[0] || null,
+        },
+      });
+      // #endregion
+      const worksheet = XLSX.utils.json_to_sheet(sanitizedRows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Mau7912');
+      const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+      // #region debug-point B:export-7912-after-xlsx
+      reportDebugEvent({
+        hypothesisId: 'B',
+        traceId,
+        location: 'behavior.service.ts:exportApprovedJournalsForms7912File:after-xlsx',
+        msg: 'xlsx generated successfully',
+        data: {
+          bufferLength: buffer?.length || 0,
+        },
+      });
+      // #endregion
 
-    return {
-      buffer,
-      fileName: `bao-cao-mau-7-9-12-${filters.fromDate || 'all'}-${filters.toDate || 'all'}.xlsx`,
-    };
+      return {
+        buffer,
+        fileName: `bao-cao-mau-7-9-12-${filters.fromDate || 'all'}-${filters.toDate || 'all'}.xlsx`,
+      };
+    } catch (error: any) {
+      // #region debug-point E:export-7912-error
+      reportDebugEvent({
+        hypothesisId: 'E',
+        traceId,
+        location: 'behavior.service.ts:exportApprovedJournalsForms7912File:catch',
+        msg: 'export 7/9/12 failed',
+        data: {
+          message: error?.message || '',
+          name: error?.name || '',
+          stack: String(error?.stack || '').slice(0, 4000),
+          code: error?.code || '',
+          detail: error?.detail || '',
+        },
+      });
+      // #endregion
+      throw error;
+    }
   }
 
   async evaluateBehaviorLog(id: string, dto: EvaluateBehaviorLogDto, currentUser: any) {
