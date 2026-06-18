@@ -1040,50 +1040,39 @@ export class ManagerDailyScoresService {
       scopedEmployeeId = employee.id;
     }
 
-    console.log({ fromDate, toDate, employeeId: scopedEmployeeId || null, unitId: filters.unitId || null, status: 'APPROVED' });
+    const sheetsQuery = this.sheetsRepository
+      .createQueryBuilder('sheet')
+      .leftJoinAndSelect('sheet.items', 'item')
+      .leftJoinAndSelect('item.criterion', 'criterion')
+      .leftJoinAndSelect('sheet.employee', 'employee')
+      .leftJoinAndSelect('employee.unit', 'employeeUnit')
+      .leftJoinAndSelect('sheet.manager', 'manager')
+      .where('sheet.status = :status', { status: 'APPROVED' })
+      .andWhere('COALESCE(employeeUnit."excludeFromStatistics", false) = false');
 
-    const sheets = (await this.sheetsRepository.find({
-      relations: ['items'],
-      order: { scoreDate: 'DESC' },
-    }))
-      .filter((sheet) => {
-        const scoreDate = this.toDateKey(sheet.scoreDate || '');
-        if (!scoreDate) {
-          return false;
-        }
-        if (fromDate && scoreDate < fromDate) {
-          return false;
-        }
-        if (toDate && scoreDate > toDate) {
-          return false;
-        }
-        if (this.isWeekendDateKey(scoreDate)) {
-          return false;
-        }
-        if (sheet.status !== 'APPROVED') {
-          return false;
-        }
-        if (sheet.employee?.unit?.excludeFromStatistics) {
-          return false;
-        }
-        if (scopedEmployeeId && sheet.employeeId !== scopedEmployeeId) {
-          return false;
-        }
-        if (!scopedEmployeeId && currentUser.role === Role.MANAGER && sheet.unitId !== currentUser.unitId) {
-          return false;
-        }
-        if (!scopedEmployeeId && currentUser.role !== Role.MANAGER && filters.unitId && sheet.unitId !== filters.unitId) {
-          return false;
-        }
-        return true;
-      })
-      .sort((a, b) => {
-        const dateCompare = String(b.scoreDate || '').localeCompare(String(a.scoreDate || ''));
-        if (dateCompare !== 0) {
-          return dateCompare;
-        }
-        return String(a.employee?.fullName || '').localeCompare(String(b.employee?.fullName || ''), 'vi');
-      });
+    if (fromDate) {
+      sheetsQuery.andWhere('sheet.scoreDate >= :fromDate', { fromDate });
+    }
+    if (toDate) {
+      sheetsQuery.andWhere('sheet.scoreDate <= :toDate', { toDate });
+    }
+
+    // PostgreSQL: Sunday=0, Saturday=6
+    sheetsQuery.andWhere('EXTRACT(DOW FROM sheet.scoreDate) NOT IN (0, 6)');
+
+    if (scopedEmployeeId) {
+      sheetsQuery.andWhere('sheet.employeeId = :employeeId', { employeeId: scopedEmployeeId });
+    } else if (currentUser.role === Role.MANAGER) {
+      sheetsQuery.andWhere('sheet.unitId = :unitId', { unitId: currentUser.unitId });
+    } else if (filters.unitId) {
+      sheetsQuery.andWhere('sheet.unitId = :unitId', { unitId: filters.unitId });
+    }
+
+    sheetsQuery
+      .orderBy('sheet.scoreDate', 'DESC')
+      .addOrderBy('employee.fullName', 'ASC');
+
+    const sheets = await sheetsQuery.getMany();
 
     const sections = this.groupCriteria(criteria);
     const sectionItemCodes = new Map(
@@ -1148,34 +1137,38 @@ export class ManagerDailyScoresService {
       }
     >();
 
-    const allUnits = (await this.unitsRepository.find({ order: { name: 'ASC' } })).filter((unit) => {
-      if (unit.excludeFromStatistics) {
-        return false;
-      }
-      if (currentUser.role === Role.MANAGER) {
-        return unit.id === currentUser.unitId;
-      }
-      if (filters.unitId) {
-        return unit.id === filters.unitId;
-      }
-      return true;
-    });
+    const unitCountsQuery = this.unitsRepository
+      .createQueryBuilder('unit')
+      .leftJoin('unit.users', 'user', 'user.role = :employeeRole', { employeeRole: Role.EMPLOYEE })
+      .where('COALESCE(unit."excludeFromStatistics", false) = false');
 
-    for (const unit of allUnits) {
-      const employeeCount = await this.usersRepository.count({
-        where: { unitId: unit.id, role: Role.EMPLOYEE }
-      });
-      unitMap.set(unit.name, {
-        unitId: unit.id,
-        unitName: unit.name,
-        totalScore: 0,
-        employeeCount: employeeCount
-      });
+    if (currentUser.role === Role.MANAGER) {
+      unitCountsQuery.andWhere('unit.id = :unitId', { unitId: currentUser.unitId });
+    } else if (filters.unitId) {
+      unitCountsQuery.andWhere('unit.id = :unitId', { unitId: filters.unitId });
     }
 
+    const allUnits = await unitCountsQuery
+      .select('unit.id', 'unitId')
+      .addSelect('unit.name', 'unitName')
+      .addSelect('COUNT(user.id)', 'employeeCount')
+      .groupBy('unit.id')
+      .addGroupBy('unit.name')
+      .orderBy('unit.name', 'ASC')
+      .getRawMany<{ unitId: string; unitName: string; employeeCount: string }>();
+
+    allUnits.forEach((unit) => {
+      unitMap.set(unit.unitId, {
+        unitId: unit.unitId,
+        unitName: unit.unitName,
+        totalScore: 0,
+        employeeCount: Number(unit.employeeCount || 0),
+      });
+    });
+
     rows.forEach((row) => {
-      const unitName = row.unitName || 'Chưa rõ đơn vị';
-      const unit = unitMap.get(unitName);
+      const unitId = row.employee?.unitId || '';
+      const unit = unitMap.get(unitId);
       if (unit) {
         unit.totalScore += Number(row.totalScore || 0);
       }
