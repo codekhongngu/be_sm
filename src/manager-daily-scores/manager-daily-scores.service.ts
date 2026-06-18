@@ -1048,7 +1048,7 @@ export class ManagerDailyScoresService {
       .leftJoinAndSelect('employee.unit', 'employeeUnit')
       .leftJoinAndSelect('sheet.manager', 'manager')
       .where('sheet.status = :status', { status: 'APPROVED' })
-      .andWhere('COALESCE(employeeUnit."excludeFromStatistics", false) = false');
+      .andWhere('COALESCE("employeeUnit"."excludeFromStatistics", false) = false');
 
     if (fromDate) {
       sheetsQuery.andWhere('sheet.scoreDate >= :fromDate', { fromDate });
