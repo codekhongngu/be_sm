@@ -894,52 +894,62 @@ export class ManagerDailyScoresService {
       if (!payloadItem) {
         throw new BadRequestException(`Thiếu điểm cho tiêu chí ${criterion.contentName}`);
       }
-      
+      const maxScore = this.normalizeNumber(criterion.maxScore);
+
       if (currentUser.role !== Role.EMPLOYEE) {
         if (!String(payloadItem.requirementNote || '').trim()) {
           throw new BadRequestException(
             `Ghi chú yêu cầu là bắt buộc tại tiêu chí ${criterion.contentName}`,
           );
         }
-        const maxScore = this.normalizeNumber(criterion.maxScore);
         if (payloadItem.score > maxScore) {
           throw new BadRequestException(
             `Điểm tiêu chí ${criterion.contentName} không được vượt quá ${maxScore}`,
           );
         }
+      } else if (Number(payloadItem.selfScore || 0) > maxScore) {
+        throw new BadRequestException(
+          `Điểm tự đánh giá tiêu chí ${criterion.contentName} không được vượt quá ${maxScore}`,
+        );
       }
     }
 
     const criterionByCode = new Map(activeCriteria.map((item) => [item.itemCode, item]));
-    if (currentUser.role !== Role.EMPLOYEE) {
-      const customersContacted = criterionByCode.get(BEHAVIOR_CUSTOMERS_CONTACTED_CODE);
-      const successfulCareCalls = criterionByCode.get(BEHAVIOR_SUCCESSFUL_CARE_CALLS_CODE);
-      if (customersContacted && successfulCareCalls) {
-        const customersContactedScore = Number(
-          payloadMap.get(customersContacted.id)?.score || 0,
-        );
-        const successfulCareCallsScore = Number(
-          payloadMap.get(successfulCareCalls.id)?.score || 0,
-        );
-        if (customersContactedScore > 0 && successfulCareCallsScore > 0) {
-          throw new BadRequestException(
-            'Tiêu chí Số khách hàng tiếp cận và Số cuộc gọi CSKH thành công không được cùng lớn hơn 0',
-          );
-        }
-      }
-
-      const behaviorCriteriaIds = activeCriteria
-        .filter((item) => item.sectionCode === BEHAVIOR_SECTION_CODE)
-        .map((item) => item.id);
-      const behaviorSectionScore = behaviorCriteriaIds.reduce(
-        (sum, criteriaId) => sum + Number(payloadMap.get(criteriaId)?.score || 0),
-        0,
-      );
-      if (behaviorSectionScore > BEHAVIOR_SECTION_MAX_SCORE) {
+    const customersContacted = criterionByCode.get(BEHAVIOR_CUSTOMERS_CONTACTED_CODE);
+    const successfulCareCalls = criterionByCode.get(BEHAVIOR_SUCCESSFUL_CARE_CALLS_CODE);
+    if (customersContacted && successfulCareCalls) {
+      const customersContactedValue =
+        currentUser.role === Role.EMPLOYEE
+          ? Number(payloadMap.get(customersContacted.id)?.selfScore || 0)
+          : Number(payloadMap.get(customersContacted.id)?.score || 0);
+      const successfulCareCallsValue =
+        currentUser.role === Role.EMPLOYEE
+          ? Number(payloadMap.get(successfulCareCalls.id)?.selfScore || 0)
+          : Number(payloadMap.get(successfulCareCalls.id)?.score || 0);
+      if (customersContactedValue > 0 && successfulCareCallsValue > 0) {
         throw new BadRequestException(
-          `Tổng điểm phần II. Thực hành hành vi không được vượt quá ${BEHAVIOR_SECTION_MAX_SCORE}`,
+          'Tiêu chí Số khách hàng tiếp cận và Số cuộc gọi CSKH thành công không được cùng lớn hơn 0',
         );
       }
+    }
+
+    const behaviorCriteriaIds = activeCriteria
+      .filter((item) => item.sectionCode === BEHAVIOR_SECTION_CODE)
+      .map((item) => item.id);
+    const behaviorSectionScore = behaviorCriteriaIds.reduce(
+      (sum, criteriaId) =>
+        sum +
+        Number(
+          currentUser.role === Role.EMPLOYEE
+            ? payloadMap.get(criteriaId)?.selfScore || 0
+            : payloadMap.get(criteriaId)?.score || 0,
+        ),
+      0,
+    );
+    if (behaviorSectionScore > BEHAVIOR_SECTION_MAX_SCORE) {
+      throw new BadRequestException(
+        `Tổng điểm phần II. Thực hành hành vi không được vượt quá ${BEHAVIOR_SECTION_MAX_SCORE}`,
+      );
     }
 
     let sheet = await this.sheetsRepository.findOne({
@@ -1487,26 +1497,32 @@ export class ManagerDailyScoresService {
         );
 
         const isApprovedSheet = sheet?.status === 'APPROVED';
+        const getClampedItemScore = (itemCode: string, rawValue: string | number) => {
+          const item = itemByCode.get(itemCode);
+          const value = this.normalizeNumber(rawValue || 0);
+          const maxScore = this.normalizeNumber(item?.criterion?.maxScore || 0);
+          return maxScore > 0 ? Number(Math.min(value, maxScore).toFixed(2)) : value;
+        };
         const getSelfScore = (itemCode: string) =>
-          this.normalizeNumber(itemByCode.get(itemCode)?.selfScore || 0);
+          getClampedItemScore(itemCode, itemByCode.get(itemCode)?.selfScore || 0);
         const getApprovedScore = (itemCode: string) =>
-          isApprovedSheet ? this.normalizeNumber(itemByCode.get(itemCode)?.score || 0) : 0;
+          isApprovedSheet ? getClampedItemScore(itemCode, itemByCode.get(itemCode)?.score || 0) : 0;
         const getSelectedScore = (itemCode: string) =>
           useApprovedScore ? getApprovedScore(itemCode) : getSelfScore(itemCode);
         const getEmployeeInputNumber = (itemCode: string) =>
           this.safeNumericInput(itemByCode.get(itemCode)?.employeeNote || 0);
 
+        const learningItemCodes = Array.from(
+          new Set(
+            (sheet?.items || [])
+              .filter((item) => item.criterion?.sectionCode === 'LEARNING')
+              .map((item) => String(item.criterion?.itemCode || ''))
+              .filter(Boolean),
+          ),
+        );
         const learningSum = Number(
-          (sheet?.items || [])
-            .filter((item) => item.criterion?.sectionCode === 'LEARNING')
-            .reduce(
-              (sum, item) =>
-                sum +
-                this.normalizeNumber(
-                  useApprovedScore ? (isApprovedSheet ? item.score : 0) : item.selfScore,
-                ),
-              0,
-            )
+          learningItemCodes
+            .reduce((sum, itemCode) => sum + getSelectedScore(itemCode), 0)
             .toFixed(2),
         );
 
