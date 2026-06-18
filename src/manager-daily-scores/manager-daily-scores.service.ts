@@ -628,10 +628,18 @@ export class ManagerDailyScoresService {
     const workbook = XLSX.read(file.buffer, { type: 'buffer' });
     const firstSheetName = workbook.SheetNames[0];
     const firstSheet = workbook.Sheets[firstSheetName];
+    const sheetRows = XLSX.utils.sheet_to_json(firstSheet, {
+      header: 1,
+      defval: '',
+      raw: false,
+    }) as any[][];
     const rows = XLSX.utils.sheet_to_json(firstSheet, {
       defval: '',
       raw: false,
     }) as any[];
+    const originalHeaders = (Array.isArray(sheetRows?.[0]) ? sheetRows[0] : []).map((header) =>
+      String(header ?? '').trim(),
+    );
 
     if (!rows.length) {
       throw new BadRequestException('File Excel không có dữ liệu');
@@ -640,18 +648,25 @@ export class ManagerDailyScoresService {
     const imported = [];
     const skipped = [];
 
-    for (const row of rows) {
-      const scoreDate = this.toDateKey(
-        String(
-          row.scoreDate ??
-            row['Ngày chấm điểm'] ??
-            row.ngay ??
-            row.date ??
-            row.score_date ??
-            '',
-        ).trim(),
-      );
-      const employeeCode = String(
+    const inputFileBaseName = String(file.originalname || 'du-lieu-import')
+      .replace(/\.[^.]+$/, '')
+      .replace(/[^\w.-]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+      .toLowerCase();
+    const processedKeys = new Set<string>();
+
+    for (let index = 0; index < rows.length; index += 1) {
+      const row = rows[index];
+      const rawScoreDate = String(
+        row.scoreDate ??
+          row['Ngày chấm điểm'] ??
+          row.ngay ??
+          row.date ??
+          row.score_date ??
+          '',
+      ).trim();
+      const rawEmployeeCode = String(
         row.employeeCode ??
           row['Mã nhân viên'] ??
           row.maNhanVien ??
@@ -659,40 +674,49 @@ export class ManagerDailyScoresService {
           row.employee_code ??
           '',
       ).trim();
-      const successfulCareCalls = this.parseImportedNumber(
+      const rawSuccessfulCareCalls =
         row.successfulCareCalls ??
-          row['Số cuộc gọi CSKH thành công'] ??
-          row.soCuocGoiCSKHThanhCong ??
-          row.soCuocGoiCSKH ??
-          '',
-      );
-      const successfulServices = this.parseImportedNumber(
+        row['Số cuộc gọi CSKH thành công'] ??
+        row.soCuocGoiCSKHThanhCong ??
+        row.soCuocGoiCSKH ??
+        '';
+      const rawSuccessfulServices =
         row.successfulServices ??
-          row['Số dịch vụ thành công'] ??
-          row.soDichVuThanhCong ??
-          row.soDichVu ??
-          '',
-      );
-      const highPtmPackages = this.parseImportedNumber(
-        row.highPtmPackages ?? row['Số gói cao PTM'] ?? row.soGoiCaoPTM ?? row.soGoiCao ?? '',
-      );
-      const personalRevenueVnd = this.parseImportedNumber(
-        row['Doanh thu cá nhân (VND)'] ?? row.doanhThuCaNhanVND ?? row.doanhThuVND ?? '',
-      );
-      const personalRevenueThousandRaw = this.parseImportedNumber(
+        row['Số dịch vụ thành công'] ??
+        row.soDichVuThanhCong ??
+        row.soDichVu ??
+        '';
+      const rawHighPtmPackages =
+        row.highPtmPackages ?? row['Số gói cao PTM'] ?? row.soGoiCaoPTM ?? row.soGoiCao ?? '';
+      const rawPersonalRevenueVnd =
+        row['Doanh thu cá nhân (VND)'] ?? row.doanhThuCaNhanVND ?? row.doanhThuVND ?? '';
+      const rawPersonalRevenueThousand =
         row.personalRevenueThousand ??
-          row['Doanh thu cá nhân (Ngàn đồng)'] ??
-          row.doanhThuCaNhanNganDong ??
-          row.doanhThuNganDong ??
-          row.doanhThuCaNhan ??
-          '',
-      );
+        row['Doanh thu cá nhân (Ngàn đồng)'] ??
+        row.doanhThuCaNhanNganDong ??
+        row.doanhThuNganDong ??
+        row.doanhThuCaNhan ??
+        '';
+      const scoreDate = this.toDateKey(rawScoreDate);
+      const employeeCode = rawEmployeeCode;
+      const successfulCareCalls = this.parseImportedNumber(rawSuccessfulCareCalls);
+      const successfulServices = this.parseImportedNumber(rawSuccessfulServices);
+      const highPtmPackages = this.parseImportedNumber(rawHighPtmPackages);
+      const personalRevenueVnd = this.parseImportedNumber(rawPersonalRevenueVnd);
+      const personalRevenueThousandRaw = this.parseImportedNumber(rawPersonalRevenueThousand);
       const personalRevenueThousand = !Number.isNaN(personalRevenueVnd)
         ? Number((personalRevenueVnd / 1000).toFixed(2))
         : personalRevenueThousandRaw;
 
+      const skippedRowBase = {
+        originalRow: { ...row },
+      };
+
       if (!scoreDate || !employeeCode) {
-        skipped.push({ employeeCode, scoreDate, reason: 'Thiếu ngày hoặc mã nhân viên' });
+        skipped.push({
+          ...skippedRowBase,
+          reason: 'Thiếu ngày hoặc mã nhân viên',
+        });
         continue;
       }
       if (
@@ -700,9 +724,22 @@ export class ManagerDailyScoresService {
           (value) => Number.isNaN(value),
         )
       ) {
-        skipped.push({ employeeCode, scoreDate, reason: 'Có chỉ tiêu không phải số hợp lệ' });
+        skipped.push({
+          ...skippedRowBase,
+          reason: 'Có chỉ tiêu không phải số hợp lệ',
+        });
         continue;
       }
+
+      const duplicateKey = this.buildEmployeeDateKey(employeeCode, scoreDate);
+      if (processedKeys.has(duplicateKey)) {
+        skipped.push({
+          ...skippedRowBase,
+          reason: 'Trùng dữ liệu trong file import',
+        });
+        continue;
+      }
+      processedKeys.add(duplicateKey);
 
       const employee = await this.usersRepository.findOne({
         where: {
@@ -712,7 +749,10 @@ export class ManagerDailyScoresService {
       });
 
       if (!employee) {
-        skipped.push({ employeeCode, scoreDate, reason: 'Không tìm thấy nhân viên theo mã' });
+        skipped.push({
+          ...skippedRowBase,
+          reason: 'Không tìm thấy nhân viên theo mã',
+        });
         continue;
       }
 
@@ -752,6 +792,8 @@ export class ManagerDailyScoresService {
       totalRows: rows.length,
       importedCount: imported.length,
       skippedCount: skipped.length,
+      skippedFileName: `du-lieu-khong-import-duoc-${inputFileBaseName || 'excel-import'}.xlsx`,
+      skippedHeaders: originalHeaders,
       imported,
       skipped,
     };
