@@ -262,6 +262,48 @@ export class ManagerDailyScoresService {
     return 0;
   }
 
+  private getLearningAssessmentLabel(averageScore: number) {
+    if (averageScore < 8) {
+      return 'Chưa đạt';
+    }
+    if (averageScore <= 11) {
+      return 'Đang hình thành';
+    }
+    if (averageScore <= 13) {
+      return 'Tốt';
+    }
+    return 'Xuất sắc';
+  }
+
+  private getBehaviorAssessmentLabel(averageScore: number) {
+    if (averageScore < 18) {
+      return 'Chưa đạt';
+    }
+    if (averageScore <= 28) {
+      return 'Đạt';
+    }
+    if (averageScore <= 32) {
+      return 'Tốt';
+    }
+    return 'Xuất sắc';
+  }
+
+  private getOverallCompetitionRankLabel(averageScore: number) {
+    if (averageScore >= 90) {
+      return 'Chiến binh bán hàng VNPT';
+    }
+    if (averageScore >= 80) {
+      return 'Nhân viên xuất sắc';
+    }
+    if (averageScore >= 70) {
+      return 'Nhân viên tốt';
+    }
+    if (averageScore >= 60) {
+      return 'Cần cải thiện';
+    }
+    return 'Chưa đạt';
+  }
+
   private toImportedMetricsResponse(item?: ManagerDailyScoreImport | null) {
     if (!item) {
       return null;
@@ -1314,6 +1356,7 @@ export class ManagerDailyScoresService {
         learningRows: [],
         behaviorRows: [],
         performanceRows: [],
+        overallRows: [],
         collectiveRows: [],
       };
     }
@@ -1344,6 +1387,7 @@ export class ManagerDailyScoresService {
         learningRows: [],
         behaviorRows: [],
         performanceRows: [],
+        overallRows: [],
         collectiveRows: [],
       };
     }
@@ -1614,13 +1658,34 @@ export class ManagerDailyScoresService {
 
     const employeeStats = [...employeeStatsMap.values()];
     const learningRows = employeeStats
-      .map((item) => toCompetitionRow(item, item.learningTotal))
+      .map((item) => {
+        const row = toCompetitionRow(item, item.learningTotal);
+        return {
+          ...row,
+          assessmentLabel: this.getLearningAssessmentLabel(Number(row.averageScore || 0)),
+        };
+      })
       .sort((a, b) => b.averageScore - a.averageScore || a.fullName.localeCompare(b.fullName, 'vi'));
     const behaviorRows = employeeStats
-      .map((item) => toCompetitionRow(item, item.behaviorTotal))
+      .map((item) => {
+        const row = toCompetitionRow(item, item.behaviorTotal);
+        return {
+          ...row,
+          assessmentLabel: this.getBehaviorAssessmentLabel(Number(row.averageScore || 0)),
+        };
+      })
       .sort((a, b) => b.averageScore - a.averageScore || a.fullName.localeCompare(b.fullName, 'vi'));
     const performanceRows = employeeStats
       .map((item) => toCompetitionRow(item, item.performanceTotal))
+      .sort((a, b) => b.averageScore - a.averageScore || a.fullName.localeCompare(b.fullName, 'vi'));
+    const overallRows = employeeStats
+      .map((item) => {
+        const row = toCompetitionRow(item, item.totalScore);
+        return {
+          ...row,
+          competitionRankLabel: this.getOverallCompetitionRankLabel(Number(row.averageScore || 0)),
+        };
+      })
       .sort((a, b) => b.averageScore - a.averageScore || a.fullName.localeCompare(b.fullName, 'vi'));
 
     const collectiveRows = [...unitStatsMap.values()]
@@ -1648,6 +1713,7 @@ export class ManagerDailyScoresService {
       learningRows,
       behaviorRows,
       performanceRows,
+      overallRows,
       collectiveRows,
     };
   }
@@ -1668,10 +1734,24 @@ export class ManagerDailyScoresService {
       [],
     ];
 
-    const createEmployeeSheet = (sheetName: string, rows: any[]) => {
+    const createEmployeeSheet = (
+      sheetName: string,
+      rows: any[],
+      extraColumnHeader?: string,
+      extraColumnValueGetter?: (row: any) => string,
+    ) => {
       const aoa = [
         ...metaRows,
-        ['Hạng', 'Đơn vị', 'Mã nhân viên', 'Họ và tên', 'Tài khoản', 'Tổng điểm', 'BQ điểm/ngày'],
+        [
+          'Hạng',
+          'Đơn vị',
+          'Mã nhân viên',
+          'Họ và tên',
+          'Tài khoản',
+          'Tổng điểm',
+          'BQ điểm/ngày',
+          ...(extraColumnHeader ? [extraColumnHeader] : []),
+        ],
         ...(rows || []).map((row, index) => [
           index + 1,
           row.unitName || '',
@@ -1680,6 +1760,7 @@ export class ManagerDailyScoresService {
           row.username || '',
           Number(row.totalScore || 0),
           Number(row.averageScore || 0),
+          ...(extraColumnHeader ? [String(extraColumnValueGetter?.(row) || '')] : []),
         ]),
       ];
       const ws = XLSX.utils.aoa_to_sheet(aoa);
@@ -1691,13 +1772,30 @@ export class ManagerDailyScoresService {
         { wch: 20 },
         { wch: 14 },
         { wch: 14 },
+        ...(extraColumnHeader ? [{ wch: 28 }] : []),
       ];
       XLSX.utils.book_append_sheet(workbook, ws, sheetName);
     };
 
-    createEmployeeSheet('Thi dua hoc tap', data.learningRows || []);
-    createEmployeeSheet('Thi dua thuc hanh', data.behaviorRows || []);
+    createEmployeeSheet(
+      'Thi dua hoc tap',
+      data.learningRows || [],
+      'Danh gia hoc tap',
+      (row) => row.assessmentLabel || '',
+    );
+    createEmployeeSheet(
+      'Thi dua thuc hanh',
+      data.behaviorRows || [],
+      'Danh gia thuc hanh',
+      (row) => row.assessmentLabel || '',
+    );
     createEmployeeSheet('Thi dua hieu qua', data.performanceRows || []);
+    createEmployeeSheet(
+      'Tong hop I-II-III',
+      data.overallRows || [],
+      'Xep hang thi dua',
+      (row) => row.competitionRankLabel || '',
+    );
 
     const collectiveAoa = [
       ...metaRows,
