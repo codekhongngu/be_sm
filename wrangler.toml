@@ -1,4 +1,4 @@
-name = "sm-backend"
+name = "be-sm"
 compatibility_date = "2026-04-04"
 main = "src/index.ts"
 send_metrics = false
