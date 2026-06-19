@@ -3570,13 +3570,13 @@ export class BehaviorService implements OnModuleInit {
     currentUser: any,
     filters: { fromDate?: string; toDate?: string; unitId?: string; keyword?: string },
   ) {
-    const traceId = `exp7912-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const traceId = `exp3457912-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     // #region debug-point A:export-7912-entry
     reportDebugEvent({
       hypothesisId: 'A',
       traceId,
       location: 'behavior.service.ts:exportApprovedJournalsForms7912File:entry',
-      msg: 'export 7/9/12 requested',
+      msg: 'export 3/4/5/7/9/12 requested',
       data: {
         role: currentUser?.role,
         unitId: currentUser?.unitId,
@@ -3705,11 +3705,22 @@ export class BehaviorService implements OnModuleInit {
       ].join(',\n        ');
 
       let query = `
-      WITH approved_forms AS (
+      WITH form4_agg AS (
+        SELECT
+          s.user_id,
+          s.log_date,
+          STRING_AGG(COALESCE(s.customer_name, ''), ' | ' ORDER BY s.created_at) AS customer_names,
+          STRING_AGG(COALESCE(s.customer_issue, ''), ' | ' ORDER BY s.created_at) AS customer_issues,
+          STRING_AGG(COALESCE(s.solution_offered, ''), ' | ' ORDER BY s.created_at) AS solutions,
+          STRING_AGG(COALESCE(s.result, ''), ' | ' ORDER BY s.created_at) AS results
+        FROM sales_activity_reports s
+        GROUP BY s.user_id, s.log_date
+      ),
+      approved_forms AS (
         SELECT d.user_id::text AS user_id, d.log_date, d.form_type
         FROM daily_form_reviews d
         WHERE d.status = 'APPROVED'
-          AND d.form_type IN ('FORM_7', 'FORM_9', 'FORM_12')
+          AND d.form_type IN ('FORM_3', 'FORM_4', 'FORM_5', 'FORM_7', 'FORM_9', 'FORM_12')
       ),
       base_dates AS (
         SELECT user_id, log_date
@@ -3722,12 +3733,45 @@ export class BehaviorService implements OnModuleInit {
         u."fullName" AS "Tên nhân viên",
         u.username AS "Tài khoản",
         u."employeeCode" AS "Mã nhân viên",
+        CASE WHEN r3.user_id IS NOT NULL THEN 'Đã duyệt' ELSE 'Chưa duyệt' END AS "Mẫu 3 - Trạng thái",
+        COALESCE(m3.negative_thought, '') AS "Mẫu 3 - Suy nghĩ tiêu cực",
+        COALESCE(m3.new_mindset, '') AS "Mẫu 3 - Tư duy mới",
+        COALESCE(m3.behavior_change, '') AS "Mẫu 3 - Hành vi thay đổi",
+        CASE WHEN r4.user_id IS NOT NULL THEN 'Đã duyệt' ELSE 'Chưa duyệt' END AS "Mẫu 4 - Trạng thái",
+        COALESCE(f4.customer_names, '') AS "Mẫu 4 - Khách hàng",
+        COALESCE(f4.customer_issues, '') AS "Mẫu 4 - Vấn đề khách hàng",
+        COALESCE(f4.solutions, '') AS "Mẫu 4 - Giải pháp đề xuất",
+        COALESCE(f4.results, '') AS "Mẫu 4 - Kết quả",
+        CASE WHEN r5.user_id IS NOT NULL THEN 'Đã duyệt' ELSE 'Chưa duyệt' END AS "Mẫu 5 - Trạng thái",
+        COALESCE(e5.tomorrow_lesson, '') AS "Mẫu 5 - Bài học ngày mai",
+        COALESCE(e5.different_action, '') AS "Mẫu 5 - Việc làm khác đi",
         ${form7Select},
         ${form9Select},
         ${form12Select}
       FROM base_dates base
       INNER JOIN users u ON u.id::text = base.user_id
       INNER JOIN units un ON un.id = u."unitId"
+      LEFT JOIN approved_forms r3
+        ON r3.user_id = base.user_id
+        AND r3.log_date = base.log_date
+        AND r3.form_type = 'FORM_3'
+      LEFT JOIN mindset_logs m3
+        ON m3.user_id::text = base.user_id
+        AND m3.log_date = base.log_date
+      LEFT JOIN approved_forms r4
+        ON r4.user_id = base.user_id
+        AND r4.log_date = base.log_date
+        AND r4.form_type = 'FORM_4'
+      LEFT JOIN form4_agg f4
+        ON f4.user_id::text = base.user_id
+        AND f4.log_date = base.log_date
+      LEFT JOIN approved_forms r5
+        ON r5.user_id = base.user_id
+        AND r5.log_date = base.log_date
+        AND r5.form_type = 'FORM_5'
+      LEFT JOIN end_of_day_logs e5
+        ON e5.user_id::text = base.user_id
+        AND e5.log_date = base.log_date
       LEFT JOIN approved_forms r7
         ON r7.user_id = base.user_id
         AND r7.log_date = base.log_date
@@ -3813,7 +3857,7 @@ export class BehaviorService implements OnModuleInit {
       // #endregion
       const worksheet = XLSX.utils.json_to_sheet(sanitizedRows);
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Mau7912');
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Mau3457912');
       const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
       // #region debug-point B:export-7912-after-xlsx
       reportDebugEvent({
@@ -3829,7 +3873,7 @@ export class BehaviorService implements OnModuleInit {
 
       return {
         buffer,
-        fileName: `bao-cao-mau-7-9-12-${filters.fromDate || 'all'}-${filters.toDate || 'all'}.xlsx`,
+        fileName: `bao-cao-mau-3-4-5-7-9-12-${filters.fromDate || 'all'}-${filters.toDate || 'all'}.xlsx`,
       };
     } catch (error: any) {
       // #region debug-point E:export-7912-error
@@ -3837,7 +3881,7 @@ export class BehaviorService implements OnModuleInit {
         hypothesisId: 'E',
         traceId,
         location: 'behavior.service.ts:exportApprovedJournalsForms7912File:catch',
-        msg: 'export 7/9/12 failed',
+        msg: 'export 3/4/5/7/9/12 failed',
         data: {
           message: error?.message || '',
           name: error?.name || '',

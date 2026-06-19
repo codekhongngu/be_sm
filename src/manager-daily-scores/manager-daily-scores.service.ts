@@ -1780,13 +1780,13 @@ export class ManagerDailyScoresService {
     createEmployeeSheet(
       'Thi dua hoc tap',
       data.learningRows || [],
-      'Danh gia hoc tap',
+      'Xep hang hoc tap',
       (row) => row.assessmentLabel || '',
     );
     createEmployeeSheet(
       'Thi dua thuc hanh',
       data.behaviorRows || [],
-      'Danh gia thuc hanh',
+      'Xep hang thuc hanh',
       (row) => row.assessmentLabel || '',
     );
     createEmployeeSheet('Thi dua hieu qua', data.performanceRows || []);
