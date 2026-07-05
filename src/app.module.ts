@@ -39,6 +39,7 @@ import { ManagerDailyScoreCriterion } from './manager-daily-scores/entities/mana
 import { ManagerDailyScoreImport } from './manager-daily-scores/entities/manager-daily-score-import.entity';
 import { ManagerDailyScoreSheet } from './manager-daily-scores/entities/manager-daily-score-sheet.entity';
 import { ManagerDailyScoreItem } from './manager-daily-scores/entities/manager-daily-score-item.entity';
+import { CoachingCompetitionImport } from './manager-daily-scores/entities/coaching-competition-import.entity';
 import { SystemConfig } from './behavior/entities/system-config.entity';
 import { WeeklyReportSubmission } from './behavior/entities/weekly-report-submission.entity';
 import { ManagerCoachingLog } from './behavior/entities/manager-coaching-log.entity';
@@ -94,11 +95,13 @@ import { DailyCoachingCustomer } from './behavior/entities/daily-coaching-custom
             ManagerDailyScoreImport,
             ManagerDailyScoreSheet,
             ManagerDailyScoreItem,
+            CoachingCompetitionImport,
             SystemConfig,
             WeeklyReportSubmission,
             ManagerCoachingLog,
             DailyCoachingCustomer,
           ],
+          autoLoadEntities: true,
           synchronize: dbSync,
           ...(requireSsl
             ? { ssl: { rejectUnauthorized: false }, extra: { ssl: { rejectUnauthorized: false } } }

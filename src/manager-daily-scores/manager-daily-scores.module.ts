@@ -12,6 +12,7 @@ import { ManagerDailyScoreCriterion } from './entities/manager-daily-score-crite
 import { ManagerDailyScoreImport } from './entities/manager-daily-score-import.entity';
 import { ManagerDailyScoreItem } from './entities/manager-daily-score-item.entity';
 import { ManagerDailyScoreSheet } from './entities/manager-daily-score-sheet.entity';
+import { CoachingCompetitionImport } from './entities/coaching-competition-import.entity';
 import { ManagerDailyScoresController } from './manager-daily-scores.controller';
 import { ManagerDailyScoresService } from './manager-daily-scores.service';
 
@@ -29,6 +30,7 @@ import { ManagerDailyScoresService } from './manager-daily-scores.service';
       ManagerDailyScoreImport,
       ManagerDailyScoreSheet,
       ManagerDailyScoreItem,
+      CoachingCompetitionImport,
       SystemConfig,
     ]),
   ],

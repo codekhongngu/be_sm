@@ -225,4 +225,44 @@ export class ManagerDailyScoresController {
       toDate: scoreDate,
     });
   }
+
+  @Get('coaching-competition-template')
+  @Roles(Role.PROVINCIAL_VIEWER, Role.ADMIN)
+  async downloadCoachingCompetitionTemplate(@Res() res: Response) {
+    const file = await this.managerDailyScoresService.downloadCoachingCompetitionTemplate();
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
+    return res.send(file.buffer);
+  }
+
+  @Post('coaching-competition-import')
+  @Roles(Role.PROVINCIAL_VIEWER, Role.ADMIN)
+  @UseInterceptors(FileInterceptor('file'))
+  importCoachingCompetitionData(@UploadedFile() file: any, @Req() req: any) {
+    return this.managerDailyScoresService.importCoachingCompetitionData(req.user, file);
+  }
+
+  @Get('coaching-competition-report')
+  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  async getCoachingCompetitionReport(
+    @Query('fromDate') fromDate: string,
+    @Query('toDate') toDate: string,
+    @Query('unitId') unitId: string,
+    @Req() req: any,
+  ) {
+    if (!fromDate || !toDate) {
+      throw new Error('fromDate và toDate là bắt buộc');
+    }
+    const user = req.user;
+    let targetUnitId = unitId;
+
+    if (user.role === Role.MANAGER) {
+      targetUnitId = user.unitId;
+    }
+
+    return this.managerDailyScoresService.getCoachingCompetitionReport({ user, fromDate, toDate, unitId: targetUnitId });
+  }
 }

@@ -23,6 +23,7 @@ import { ManagerDailyScoreCriterion } from './entities/manager-daily-score-crite
 import { ManagerDailyScoreImport } from './entities/manager-daily-score-import.entity';
 import { ManagerDailyScoreItem } from './entities/manager-daily-score-item.entity';
 import { ManagerDailyScoreSheet } from './entities/manager-daily-score-sheet.entity';
+import { CoachingCompetitionImport } from './entities/coaching-competition-import.entity';
 import { validateActionTimeForDate } from '../common/utils/time-validator.util';
 
 const DEFAULT_CRITERIA = [
@@ -85,6 +86,8 @@ export class ManagerDailyScoresService {
     private readonly unitsRepository: Repository<Unit>,
     @InjectRepository(SystemConfig)
     private readonly systemConfigsRepository: Repository<SystemConfig>,
+    @InjectRepository(CoachingCompetitionImport)
+    private readonly coachingCompetitionImportsRepository: Repository<CoachingCompetitionImport>,
   ) {}
 
   private toDateKey(value: string) {
@@ -2083,5 +2086,391 @@ export class ManagerDailyScoresService {
         'bao-cao-thong-ke-don-vi-',
       ),
     };
+  }
+
+  async downloadCoachingCompetitionTemplate() {
+    const workbook = XLSX.utils.book_new();
+    const templateRows = [
+      {
+        'Ngày (YYYY-MM-DD)': '2026-06-01',
+        'Mã nhân viên': 'NV001',
+        'Mục 3.1 - Hình ảnh coaching báo cáo hằng ngày qua group': 3,
+        'Mục 3.2 - Video roleplay': 7,
+        'Mục 3.3 - Câu chuyện ca thành công và bài học nhân rộng': 10,
+        'Mục 4.1 - Số dịch vụ phát triển mới/gia hạn/nâng gói/nâng chu kỳ': 4,
+        'Mục 4.2 - Số gói cao phát triển mới': 2,
+        'Mục 4.3 - Tỷ lệ chốt dịch vụ': 3,
+        'Mục 4.4 - Doanh thu PTM/GH cá nhân': 10,
+        'Mục 4.5 - Số KH quay lại giới thiệu KH mới': 1,
+        'Mục 5.1 - Sáng kiến coaching': 10,
+      },
+    ];
+    const guideRows = [
+      {
+        'Tên cột': 'Ngày (YYYY-MM-DD)',
+        'Bắt buộc': 'Có',
+        'Giải thích': 'Ngày ghi nhận điểm (vd: 2026-06-01)',
+      },
+      {
+        'Tên cột': 'Mã nhân viên',
+        'Bắt buộc': 'Có',
+        'Giải thích': 'Mã nhân viên',
+      },
+      {
+        'Tên cột': 'Mục 3.1 - Hình ảnh coaching báo cáo hằng ngày qua group',
+        'Bắt buộc': 'Có',
+        'Giải thích': 'Nhập điểm đạt được của tiểu mục 3.1. Theo tài liệu: tối đa 3 điểm',
+      },
+      {
+        'Tên cột': 'Mục 3.2 - Video roleplay',
+        'Bắt buộc': 'Có',
+        'Giải thích': 'Nhập điểm đạt được của tiểu mục 3.2. Các mức thường dùng: 3, 5, 6, 7',
+      },
+      {
+        'Tên cột': 'Mục 3.3 - Câu chuyện ca thành công và bài học nhân rộng',
+        'Bắt buộc': 'Có',
+        'Giải thích': 'Nhập điểm đạt được của tiểu mục 3.3. Theo tài liệu: tối đa 10 điểm',
+      },
+      {
+        'Tên cột': 'Mục 4.1 - Số dịch vụ phát triển mới/gia hạn/nâng gói/nâng chu kỳ',
+        'Bắt buộc': 'Có',
+        'Giải thích': 'Nhập điểm đạt được của tiểu mục 4.1. Các mức thường dùng: 2, 3, 4',
+      },
+      {
+        'Tên cột': 'Mục 4.2 - Số gói cao phát triển mới',
+        'Bắt buộc': 'Có',
+        'Giải thích': 'Nhập điểm đạt được của tiểu mục 4.2. Các mức thường dùng: 1, 2',
+      },
+      {
+        'Tên cột': 'Mục 4.3 - Tỷ lệ chốt dịch vụ',
+        'Bắt buộc': 'Có',
+        'Giải thích': 'Nhập điểm đạt được của tiểu mục 4.3. Các mức thường dùng: 1, 2, 3',
+      },
+      {
+        'Tên cột': 'Mục 4.4 - Doanh thu PTM/GH cá nhân',
+        'Bắt buộc': 'Có',
+        'Giải thích': 'Nhập điểm thực nhận của tiểu mục 4.4 theo tài liệu. Có thể nhập 1-10 tùy mức được duyệt',
+      },
+      {
+        'Tên cột': 'Mục 4.5 - Số KH quay lại giới thiệu KH mới',
+        'Bắt buộc': 'Có',
+        'Giải thích': 'Nhập điểm đạt được của tiểu mục 4.5. Theo tài liệu: 1 điểm khi đạt yêu cầu',
+      },
+      {
+        'Tên cột': 'Mục 5.1 - Sáng kiến coaching',
+        'Bắt buộc': 'Có',
+        'Giải thích': 'Nhập điểm đạt được của tiểu mục 5.1. Theo tài liệu: tối đa 10 điểm',
+      },
+    ];
+
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(templateRows), 'Du lieu import');
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(guideRows), 'Huong dan');
+
+    return {
+      buffer: XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }),
+      fileName: 'mau-import-thi-dua-coaching.xlsx',
+    };
+  }
+
+  async importCoachingCompetitionData(currentUser: any, file: any) {
+    if (![Role.PROVINCIAL_VIEWER, Role.ADMIN].includes(currentUser.role)) {
+      throw new ForbiddenException('Chỉ tài khoản quản lý/admin mới được import');
+    }
+    if (!file) {
+      throw new BadRequestException('Thiếu file Excel');
+    }
+
+    const workbook = XLSX.read(file.buffer, { type: 'buffer' });
+    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(firstSheet, { defval: '', raw: false }) as any[];
+
+    if (!rows.length) {
+      throw new BadRequestException('File Excel không có dữ liệu');
+    }
+
+    let importedCount = 0;
+    const skipped = [];
+
+    for (const row of rows) {
+      const rawScoreDate = String(row['Ngày (YYYY-MM-DD)'] || row.scoreDate || '').trim();
+      const rawEmployeeCode = String(row['Mã nhân viên'] || row.employeeCode || '').trim();
+
+      const item31Score = this.parseImportedNumber(
+        row['Mục 3.1 - Hình ảnh coaching báo cáo hằng ngày qua group'],
+      );
+      const item32Score = this.parseImportedNumber(row['Mục 3.2 - Video roleplay']);
+      const item33Score = this.parseImportedNumber(
+        row['Mục 3.3 - Câu chuyện ca thành công và bài học nhân rộng'],
+      );
+
+      const item41Score = this.parseImportedNumber(
+        row['Mục 4.1 - Số dịch vụ phát triển mới/gia hạn/nâng gói/nâng chu kỳ'],
+      );
+      const item42Score = this.parseImportedNumber(row['Mục 4.2 - Số gói cao phát triển mới']);
+      const item43Score = this.parseImportedNumber(row['Mục 4.3 - Tỷ lệ chốt dịch vụ']);
+      const item44Score = this.parseImportedNumber(row['Mục 4.4 - Doanh thu PTM/GH cá nhân']);
+      const item45Score = this.parseImportedNumber(
+        row['Mục 4.5 - Số KH quay lại giới thiệu KH mới'],
+      );
+
+      const item51Score = this.parseImportedNumber(row['Mục 5.1 - Sáng kiến coaching']);
+
+      if (!rawScoreDate || !rawEmployeeCode) {
+        skipped.push({ row, reason: 'Thiếu ngày hoặc mã nhân viên' });
+        continue;
+      }
+
+      const employee = await this.usersRepository.findOne({
+        where: { employeeCode: rawEmployeeCode, role: Role.EMPLOYEE },
+      });
+
+      if (!employee) {
+        skipped.push({ row, reason: 'Không tìm thấy nhân viên' });
+        continue;
+      }
+
+      let record = await this.coachingCompetitionImportsRepository.findOne({
+        where: { employeeId: employee.id, scoreDate: rawScoreDate as any },
+      });
+
+      if (!record) {
+        record = this.coachingCompetitionImportsRepository.create({
+          employeeId: employee.id,
+          unitId: employee.unitId,
+          scoreDate: rawScoreDate as any,
+        });
+      }
+
+      record.employeeCode = rawEmployeeCode;
+      record.item31Score = item31Score;
+      record.item32Score = item32Score;
+      record.item33Score = item33Score;
+      record.item41Score = item41Score;
+      record.item42Score = item42Score;
+      record.item43Score = item43Score;
+      record.item44Score = item44Score;
+      record.item45Score = item45Score;
+      record.item51Score = item51Score;
+      record.sourceFileName = String(file.originalname || '');
+      record.importedById = currentUser.sub || currentUser.id;
+
+      await this.coachingCompetitionImportsRepository.save(record);
+      importedCount++;
+    }
+
+    return { totalRows: rows.length, importedCount, skippedCount: skipped.length, skipped };
+  }
+
+  async getCoachingCompetitionReport(params: { user: any, fromDate: string, toDate: string, unitId: string }) {
+    const { user, fromDate, toDate, unitId } = params;
+
+    // 1. Lấy dữ liệu thi đua TNC để có Mục 1 và Mục 2
+    const tncData = await this.getTncCompetition(user, { fromDate, toDate, unitId, useApprovedScore: true });
+    const validDayCount = tncData.validDayCount || 1;
+
+    // 2. Lấy dữ liệu Mục 2.7 (Giám đốc đánh giá)
+    const managerCoachingLogs = (await this.managerCoachingLogsRepository.find()).filter((item) => {
+      const coachingDateKey = this.toDateKey(new Date(item.coachingTime).toISOString());
+      return coachingDateKey >= fromDate && coachingDateKey <= toDate;
+    });
+    
+    const directorEvaluatedKeys = new Set(
+      managerCoachingLogs.map((item) =>
+        this.buildEmployeeDateKey(item.coachedUserId, this.toDateKey(new Date(item.coachingTime).toISOString())),
+      ),
+    );
+
+    const employeeCoachingDays = new Map<string, number>();
+    directorEvaluatedKeys.forEach((key) => {
+      const empId = key.split('_')[0];
+      employeeCoachingDays.set(empId, (employeeCoachingDays.get(empId) || 0) + 1);
+    });
+
+    // 3. Lấy dữ liệu Import (Mục 3, 4, 5)
+    const qb = this.coachingCompetitionImportsRepository.createQueryBuilder('cci')
+      .leftJoinAndSelect('cci.employee', 'employee')
+      .leftJoinAndSelect('cci.unit', 'unit')
+      .where('cci.scoreDate >= :fromDate', { fromDate })
+      .andWhere('cci.scoreDate <= :toDate', { toDate });
+
+    if (unitId) {
+      qb.andWhere('cci.unitId = :unitId', { unitId });
+    }
+
+    const importRecords = await qb.getMany();
+
+    const importByEmployee = new Map<string, {
+      item31Sum: number;
+      item32Sum: number;
+      item33Sum: number;
+      item41Sum: number;
+      item42Sum: number;
+      item43Sum: number;
+      item44Sum: number;
+      item45Sum: number;
+      item51Sum: number;
+      count: number;
+    }>();
+    importRecords.forEach(r => {
+      const empData = importByEmployee.get(r.employeeId) || {
+        item31Sum: 0,
+        item32Sum: 0,
+        item33Sum: 0,
+        item41Sum: 0,
+        item42Sum: 0,
+        item43Sum: 0,
+        item44Sum: 0,
+        item45Sum: 0,
+        item51Sum: 0,
+        count: 0,
+      };
+      empData.item31Sum += Number(r.item31Score || 0);
+      empData.item32Sum += Number(r.item32Score || 0);
+      empData.item33Sum += Number(r.item33Score || 0);
+      empData.item41Sum += Number(r.item41Score || 0);
+      empData.item42Sum += Number(r.item42Score || 0);
+      empData.item43Sum += Number(r.item43Score || 0);
+      empData.item44Sum += Number(r.item44Score || 0);
+      empData.item45Sum += Number(r.item45Score || 0);
+      empData.item51Sum += Number(r.item51Score || 0);
+      empData.count++;
+      importByEmployee.set(r.employeeId, empData);
+    });
+
+    // 4. Kết hợp dữ liệu
+    const employees = [];
+    const unitMap = new Map<string, any>();
+
+    tncData.learningRows.forEach((lr) => {
+      const empId = lr.employeeId;
+      const br = tncData.behaviorRows.find(b => b.employeeId === empId);
+      const imp = importByEmployee.get(empId);
+
+      const item1Score = Number(lr.averageScore || 0);
+      const item2Score = Number(br?.averageScore || 0);
+
+      const coachingDays = employeeCoachingDays.get(empId) || 0;
+      const item2Item7Score = validDayCount > 0 ? (coachingDays * 9) / validDayCount : 0;
+
+      const item31Score = imp && validDayCount > 0 ? imp.item31Sum / validDayCount : 0;
+      const item32Score = imp && validDayCount > 0 ? imp.item32Sum / validDayCount : 0;
+      const item33Score = imp && validDayCount > 0 ? imp.item33Sum / validDayCount : 0;
+      const item41Score = imp && validDayCount > 0 ? imp.item41Sum / validDayCount : 0;
+      const item42Score = imp && validDayCount > 0 ? imp.item42Sum / validDayCount : 0;
+      const item43Score = imp && validDayCount > 0 ? imp.item43Sum / validDayCount : 0;
+      const item44Score = imp && validDayCount > 0 ? imp.item44Sum / validDayCount : 0;
+      const item45Score = imp && validDayCount > 0 ? imp.item45Sum / validDayCount : 0;
+      const item51Score = imp && validDayCount > 0 ? imp.item51Sum / validDayCount : 0;
+      const item3Score = item31Score + item32Score + item33Score;
+      const item4Score = item41Score + item42Score + item43Score + item44Score + item45Score;
+      const item5Score = item51Score;
+
+      const personalChangeScore = item2Score + (item4Score * 2);
+      const followUpScore = item2Score + item4Score + item2Item7Score;
+      const cultureScore = (item2Score * 2) + item4Score;
+
+      employees.push({
+        employeeId: empId,
+        employeeCode: lr.employeeCode,
+        fullName: lr.fullName,
+        unitName: lr.unitName,
+        item1Score,
+        item2Score,
+        item2Item7Score,
+        item31Score,
+        item32Score,
+        item33Score,
+        item3Score,
+        item41Score,
+        item42Score,
+        item43Score,
+        item44Score,
+        item45Score,
+        item4Score,
+        item51Score,
+        item5Score,
+        personalChangeScore,
+        followUpScore,
+        cultureScore,
+      });
+
+      const u = unitMap.get(lr.unitId) || {
+        unitId: lr.unitId,
+        unitName: lr.unitName,
+        count: 0,
+        item1Sum: 0,
+        item2Sum: 0,
+        item31Sum: 0,
+        item32Sum: 0,
+        item33Sum: 0,
+        item3Sum: 0,
+        item41Sum: 0,
+        item42Sum: 0,
+        item43Sum: 0,
+        item44Sum: 0,
+        item45Sum: 0,
+        item4Sum: 0,
+        item51Sum: 0,
+        item5Sum: 0,
+      };
+
+      u.count++;
+      u.item1Sum += item1Score;
+      u.item2Sum += item2Score;
+      u.item31Sum += item31Score;
+      u.item32Sum += item32Score;
+      u.item33Sum += item33Score;
+      u.item3Sum += item3Score;
+      u.item41Sum += item41Score;
+      u.item42Sum += item42Score;
+      u.item43Sum += item43Score;
+      u.item44Sum += item44Score;
+      u.item45Sum += item45Score;
+      u.item4Sum += item4Score;
+      u.item51Sum += item51Score;
+      u.item5Sum += item5Score;
+      unitMap.set(lr.unitId, u);
+    });
+
+    const units = Array.from(unitMap.values()).map(u => {
+      const item1Avg = u.count > 0 ? u.item1Sum / u.count : 0;
+      const item2Avg = u.count > 0 ? u.item2Sum / u.count : 0;
+      const item31Avg = u.count > 0 ? u.item31Sum / u.count : 0;
+      const item32Avg = u.count > 0 ? u.item32Sum / u.count : 0;
+      const item33Avg = u.count > 0 ? u.item33Sum / u.count : 0;
+      const item3Avg = u.count > 0 ? u.item3Sum / u.count : 0;
+      const item41Avg = u.count > 0 ? u.item41Sum / u.count : 0;
+      const item42Avg = u.count > 0 ? u.item42Sum / u.count : 0;
+      const item43Avg = u.count > 0 ? u.item43Sum / u.count : 0;
+      const item44Avg = u.count > 0 ? u.item44Sum / u.count : 0;
+      const item45Avg = u.count > 0 ? u.item45Sum / u.count : 0;
+      const item4Avg = u.count > 0 ? u.item4Sum / u.count : 0;
+      const item51Avg = u.count > 0 ? u.item51Sum / u.count : 0;
+      const item5Avg = u.count > 0 ? u.item5Sum / u.count : 0;
+
+      return {
+        unitId: u.unitId,
+        unitName: u.unitName,
+        item1Avg,
+        item2Avg,
+        item31Avg,
+        item32Avg,
+        item33Avg,
+        item3Avg,
+        item41Avg,
+        item42Avg,
+        item43Avg,
+        item44Avg,
+        item45Avg,
+        item4Avg,
+        item51Avg,
+        item5Avg,
+        excellentCoachingScore: item1Avg + item2Avg + item3Avg + item4Avg + item5Avg,
+        bestTransformationScore: item1Avg + item2Avg + item3Avg + (item4Avg * 2) + item5Avg,
+        bestBehaviorScore: item1Avg + (item2Avg * 2) + item3Avg + item4Avg + item5Avg,
+      };
+    });
+
+    return { units, employees };
   }
 }
