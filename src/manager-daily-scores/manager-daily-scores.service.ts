@@ -2473,4 +2473,186 @@ export class ManagerDailyScoresService {
 
     return { units, employees };
   }
+
+  async exportCoachingCompetitionReportFile(params: {
+    user: any;
+    fromDate: string;
+    toDate: string;
+    unitId: string;
+  }) {
+    const data = await this.getCoachingCompetitionReport(params);
+    const workbook = XLSX.utils.book_new();
+
+    const summaryRows = [
+      {
+        'Từ ngày': params.fromDate,
+        'Đến ngày': params.toDate,
+        'Đơn vị lọc': params.unitId || '',
+      },
+    ];
+
+    const units = [...(data.units || [])];
+    const employees = [...(data.employees || [])];
+
+    const collectiveExcellentRows = [...units]
+      .sort((a, b) => Number(b.excellentCoachingScore || 0) - Number(a.excellentCoachingScore || 0))
+      .map((unit) => ({
+        'Đơn vị': unit.unitName,
+        'Mục 1': Number(unit.item1Avg || 0),
+        'Mục 2': Number(unit.item2Avg || 0),
+        'Mục 3': Number(unit.item3Avg || 0),
+        'Mục 4': Number(unit.item4Avg || 0),
+        'Mục 5': Number(unit.item5Avg || 0),
+        'Tổng điểm': Number(unit.excellentCoachingScore || 0),
+      }));
+
+    const collectiveTransformationRows = [...units]
+      .sort((a, b) => Number(b.bestTransformationScore || 0) - Number(a.bestTransformationScore || 0))
+      .map((unit) => ({
+        'Đơn vị': unit.unitName,
+        'Mục 1': Number(unit.item1Avg || 0),
+        'Mục 2': Number(unit.item2Avg || 0),
+        'Mục 3': Number(unit.item3Avg || 0),
+        'Mục 4 x 2': Number(unit.item4Avg || 0) * 2,
+        'Mục 5': Number(unit.item5Avg || 0),
+        'Tổng điểm': Number(unit.bestTransformationScore || 0),
+      }));
+
+    const collectiveBehaviorRows = [...units]
+      .sort((a, b) => Number(b.bestBehaviorScore || 0) - Number(a.bestBehaviorScore || 0))
+      .map((unit) => ({
+        'Đơn vị': unit.unitName,
+        'Mục 1': Number(unit.item1Avg || 0),
+        'Mục 2 x 2': Number(unit.item2Avg || 0) * 2,
+        'Mục 3': Number(unit.item3Avg || 0),
+        'Mục 4': Number(unit.item4Avg || 0),
+        'Mục 5': Number(unit.item5Avg || 0),
+        'Tổng điểm': Number(unit.bestBehaviorScore || 0),
+      }));
+
+    const strongestEmployeesRows = [...employees]
+      .sort((a, b) => Number(b.personalChangeScore || 0) - Number(a.personalChangeScore || 0))
+      .map((employee) => ({
+        'Mã NV': employee.employeeCode,
+        'Họ và tên': employee.fullName,
+        'Đơn vị': employee.unitName,
+        'Mục 2': Number(employee.item2Score || 0),
+        'Mục 4 x 2': Number(employee.item4Score || 0) * 2,
+        'Tổng điểm': Number(employee.personalChangeScore || 0),
+      }));
+
+    const followUpEmployeesRows = [...employees]
+      .sort((a, b) => Number(b.followUpScore || 0) - Number(a.followUpScore || 0))
+      .map((employee) => ({
+        'Mã NV': employee.employeeCode,
+        'Họ và tên': employee.fullName,
+        'Đơn vị': employee.unitName,
+        'Mục 2': Number(employee.item2Score || 0),
+        'Mục 2.7': Number(employee.item2Item7Score || 0),
+        'Mục 4': Number(employee.item4Score || 0),
+        'Tổng điểm': Number(employee.followUpScore || 0),
+      }));
+
+    const cultureEmployeesRows = [...employees]
+      .sort((a, b) => Number(b.cultureScore || 0) - Number(a.cultureScore || 0))
+      .map((employee) => ({
+        'Mã NV': employee.employeeCode,
+        'Họ và tên': employee.fullName,
+        'Đơn vị': employee.unitName,
+        'Mục 2 x 2': Number(employee.item2Score || 0) * 2,
+        'Mục 4': Number(employee.item4Score || 0),
+        'Tổng điểm': Number(employee.cultureScore || 0),
+      }));
+
+    const collectiveDetailRows = units.map((unit) => ({
+      'Đơn vị': unit.unitName,
+      '3.1': Number(unit.item31Avg || 0),
+      '3.2': Number(unit.item32Avg || 0),
+      '3.3': Number(unit.item33Avg || 0),
+      '4.1': Number(unit.item41Avg || 0),
+      '4.2': Number(unit.item42Avg || 0),
+      '4.3': Number(unit.item43Avg || 0),
+      '4.4': Number(unit.item44Avg || 0),
+      '4.5': Number(unit.item45Avg || 0),
+      '5.1': Number(unit.item51Avg || 0),
+    }));
+
+    const individualDetailRows = employees.map((employee) => ({
+      'Mã NV': employee.employeeCode,
+      'Họ và tên': employee.fullName,
+      'Đơn vị': employee.unitName,
+      '3.1': Number(employee.item31Score || 0),
+      '3.2': Number(employee.item32Score || 0),
+      '3.3': Number(employee.item33Score || 0),
+      '4.1': Number(employee.item41Score || 0),
+      '4.2': Number(employee.item42Score || 0),
+      '4.3': Number(employee.item43Score || 0),
+      '4.4': Number(employee.item44Score || 0),
+      '4.5': Number(employee.item45Score || 0),
+      '5.1': Number(employee.item51Score || 0),
+    }));
+
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(summaryRows), 'Thong tin');
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.json_to_sheet(
+        collectiveExcellentRows.length ? collectiveExcellentRows : [{ 'Đơn vị': '' }],
+      ),
+      'TT coaching XS',
+    );
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.json_to_sheet(
+        collectiveTransformationRows.length ? collectiveTransformationRows : [{ 'Đơn vị': '' }],
+      ),
+      'TT chuyen hoa',
+    );
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.json_to_sheet(
+        collectiveBehaviorRows.length ? collectiveBehaviorRows : [{ 'Đơn vị': '' }],
+      ),
+      'TT hanh vi',
+    );
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.json_to_sheet(
+        strongestEmployeesRows.length ? strongestEmployeesRows : [{ 'Mã NV': '' }],
+      ),
+      'CN thay doi manh',
+    );
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.json_to_sheet(
+        followUpEmployeesRows.length ? followUpEmployeesRows : [{ 'Mã NV': '' }],
+      ),
+      'CN follow-up',
+    );
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.json_to_sheet(
+        cultureEmployeesRows.length ? cultureEmployeesRows : [{ 'Mã NV': '' }],
+      ),
+      'CN van hoa',
+    );
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.json_to_sheet(
+        collectiveDetailRows.length ? collectiveDetailRows : [{ 'Đơn vị': '' }],
+      ),
+      'Chi tiet TT',
+    );
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.json_to_sheet(
+        individualDetailRows.length ? individualDetailRows : [{ 'Mã NV': '' }],
+      ),
+      'Chi tiet CN',
+    );
+
+    return {
+      buffer: XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }),
+      fileName: `bao-cao-thi-dua-coaching-${params.fromDate}-den-${params.toDate}.xlsx`,
+    };
+  }
 }

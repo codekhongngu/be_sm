@@ -265,4 +265,42 @@ export class ManagerDailyScoresController {
 
     return this.managerDailyScoresService.getCoachingCompetitionReport({ user, fromDate, toDate, unitId: targetUnitId });
   }
+
+  @Get('coaching-competition-export')
+  @Roles(Role.MANAGER, Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  async exportCoachingCompetitionReport(
+    @Query('fromDate') fromDate: string,
+    @Query('toDate') toDate: string,
+    @Query('unitId') unitId: string,
+    @Req() req: any,
+    @Res() res: Response,
+  ) {
+    if (!fromDate || !toDate) {
+      throw new Error('fromDate và toDate là bắt buộc');
+    }
+
+    const user = req.user;
+    let targetUnitId = unitId;
+
+    if (user.role === Role.MANAGER) {
+      targetUnitId = user.unitId;
+    }
+
+    const file = await this.managerDailyScoresService.exportCoachingCompetitionReportFile({
+      user,
+      fromDate,
+      toDate,
+      unitId: targetUnitId,
+    });
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${encodeURIComponent(file.fileName)}"`,
+    );
+    return res.send(file.buffer);
+  }
 }
