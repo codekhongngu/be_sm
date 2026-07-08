@@ -2803,6 +2803,34 @@ export class BehaviorService implements OnModuleInit {
     const rows = coachingData.rows || [];
     const cutoffHour = Number(coachingData.cutoffHour || 7);
     const safeDiv = (a: number, b: number) => (b > 0 ? Number((a / b).toFixed(4)) : 0);
+    const fromDate = filters.fromDate || new Date().toISOString().slice(0, 10);
+    const toDate = filters.toDate || fromDate;
+
+    const historicalScheduleQb = this.dailyCoachingCustomersRepository
+      .createQueryBuilder('c')
+      .leftJoin('c.user', 'u')
+      .select([
+        'c.logDate AS "logDate"',
+        'u.employeeCode AS "employeeCode"',
+        'c.nextFollowRequired AS "nextFollowRequired"',
+        'c.nextFollowSchedule AS "nextFollowSchedule"',
+      ])
+      .where('c.coachingForm = :coachingForm', { coachingForm: 'coaching_form_2' })
+      .andWhere('c.logDate < :fromDate', { fromDate })
+      .andWhere('c.nextFollowRequired = 1')
+      .andWhere('c.nextFollowSchedule >= :fromDate', { fromDate })
+      .andWhere('c.nextFollowSchedule <= :toDate', { toDate });
+
+    if (filters.unitId) {
+      historicalScheduleQb.andWhere('u.unitId = :unitId', { unitId: filters.unitId });
+    }
+
+    const historicalScheduleRows = await historicalScheduleQb.getRawMany();
+    const historicalScheduleCounts = new Map<string, number>();
+    historicalScheduleRows.forEach((row) => {
+      const key = `${String(row.employeeCode || '')}__${String(row.nextFollowSchedule || '')}`;
+      historicalScheduleCounts.set(key, (historicalScheduleCounts.get(key) || 0) + 1);
+    });
 
     const grouped = new Map<string, any[]>();
     rows.forEach((row) => {
@@ -2861,7 +2889,7 @@ export class BehaviorService implements OnModuleInit {
           (row) => Number(row.customerFollowUp) === 1 && Number(row.closedService) === 1,
         ).length;
 
-        const previousDaysMatchedSchedule = rows.filter((row) => {
+        const previousDaysMatchedScheduleInRange = rows.filter((row) => {
           const rowEmployeeCode = String(row.employeeCode || '');
           const rowDate = String(row.logDate || '');
           const rowSchedule = String(row.nextFollowSchedule || '');
@@ -2872,6 +2900,10 @@ export class BehaviorService implements OnModuleInit {
             && rowSchedule === executionDate
           );
         }).length;
+        const previousDaysMatchedScheduleFromHistory =
+          historicalScheduleCounts.get(`${employeeCode}__${executionDate}`) || 0;
+        const previousDaysMatchedSchedule =
+          previousDaysMatchedScheduleInRange + previousDaysMatchedScheduleFromHistory;
 
         const currentRevenue = Number(
           items.reduce((sum, row) => sum + (Number(row.personalRevenue) || 0), 0),
@@ -2912,6 +2944,8 @@ export class BehaviorService implements OnModuleInit {
               hangingCustomers,
               followAndClosed,
               previousDaysMatchedSchedule,
+              previousDaysMatchedScheduleInRange,
+              previousDaysMatchedScheduleFromHistory,
               currentRevenue,
               previousRevenue,
             },
@@ -2927,8 +2961,8 @@ export class BehaviorService implements OnModuleInit {
 
     return {
       filters: {
-        fromDate: filters.fromDate || new Date().toISOString().slice(0, 10),
-        toDate: filters.toDate || filters.fromDate || new Date().toISOString().slice(0, 10),
+        fromDate,
+        toDate,
         unitId: filters.unitId || null,
         cutoffHour,
       },
