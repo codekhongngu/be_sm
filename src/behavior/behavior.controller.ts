@@ -598,6 +598,37 @@ export class BehaviorController {
     return res.send(file.buffer);
   }
 
+  @Get('reports/coaching-provincial-gd2-summary')
+  @Roles(Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  async getCoachingProvincialGd2Summary(
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+    @Query('unitId') unitId?: string,
+  ) {
+    return this.behaviorService.getCoachingProvincialGd2Summary({ fromDate, toDate, unitId });
+  }
+
+  @Get('reports/coaching-provincial-gd2-summary-export')
+  @Roles(Role.ADMIN, Role.PROVINCIAL_VIEWER)
+  async exportCoachingProvincialGd2Summary(
+    @Res() res: Response,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+    @Query('unitId') unitId?: string,
+  ) {
+    const file = await this.behaviorService.exportCoachingProvincialGd2SummaryFile({
+      fromDate,
+      toDate,
+      unitId,
+    });
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${file.fileName}"`);
+    return res.send(file.buffer);
+  }
+
   @Patch('admin/system-configs')
   @Roles(Role.ADMIN)
   updateSystemConfigs(@Body() payload: { cutoffHour?: number, cutoffHourManager?: number, disableCrossTimeManager?: boolean, lockedEntryDates?: string[] }) {

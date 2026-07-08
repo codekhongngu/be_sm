@@ -2798,6 +2798,253 @@ export class BehaviorService implements OnModuleInit {
     };
   }
 
+  async getCoachingProvincialGd2Summary(filters: { fromDate?: string; toDate?: string; unitId?: string }) {
+    const coachingData = await this.getCoachingProvincialGd2Data(filters);
+    const rows = coachingData.rows || [];
+    const cutoffHour = Number(coachingData.cutoffHour || 7);
+    const safeDiv = (a: number, b: number) => (b > 0 ? Number((a / b).toFixed(4)) : 0);
+
+    const grouped = new Map<string, any[]>();
+    rows.forEach((row) => {
+      const key = `${row.logDate || ''}__${row.employeeCode || ''}`;
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key)!.push(row);
+    });
+
+    const revenueTimelineByEmployee = new Map<string, Array<{ date: string; revenue: number }>>();
+    const revenueByEmployeeDate = new Map<string, number>();
+    rows.forEach((row) => {
+      const employeeCode = String(row.employeeCode || '');
+      const date = String(row.logDate || '');
+      const key = `${employeeCode}__${date}`;
+      const revenue = Number(row.personalRevenue) || 0;
+      revenueByEmployeeDate.set(key, (revenueByEmployeeDate.get(key) || 0) + revenue);
+    });
+    revenueByEmployeeDate.forEach((revenue, key) => {
+      const [employeeCode, date] = key.split('__');
+      const timeline = revenueTimelineByEmployee.get(employeeCode) || [];
+      timeline.push({ date, revenue });
+      revenueTimelineByEmployee.set(employeeCode, timeline);
+    });
+    revenueTimelineByEmployee.forEach((timeline) => {
+      timeline.sort((a, b) => a.date.localeCompare(b.date));
+    });
+
+    const summaryRows = Array.from(grouped.values())
+      .map((items, idx) => {
+        const first = items[0] || {};
+        const executionDate = String(first.logDate || '');
+        const employeeCode = String(first.employeeCode || '');
+
+        const totalCustomers = items.filter((row) => String(row.customerName || '').trim() !== '').length;
+        const totalOldReferral = items.reduce((sum, row) => sum + (Number(row.oldReferral) || 0), 0);
+        const totalCustomerFollowUp = items.reduce((sum, row) => sum + (Number(row.customerFollowUp) || 0), 0);
+        const totalNoEarlyQuote = items.reduce((sum, row) => sum + (Number(row.noEarlyQuote) || 0), 0);
+        const totalConsultEnoughLayers = items.reduce(
+          (sum, row) => sum + (Number(row.consultEnoughLayers) || 0),
+          0,
+        );
+        const totalClosedService = items.reduce((sum, row) => sum + (Number(row.closedService) || 0), 0);
+
+        const rowsClosed0 = items.filter((row) => Number(row.closedService) === 0);
+        const totalFollowRequired = items.reduce((sum, row) => sum + (Number(row.nextFollowRequired) || 0), 0);
+        const totalPotentialWithScheduleWhenNotClosed = rowsClosed0.reduce(
+          (sum, row) => sum + (Number(row.nextFollowRequired) || 0),
+          0,
+        );
+        const totalCustomersCondition17Eq0 = items.filter(
+          (row) => String(row.customerName || '').trim() !== '' && Number(row.nextFollowRequired) === 0,
+        ).length;
+        const hangingCustomers = totalCustomersCondition17Eq0 - totalPotentialWithScheduleWhenNotClosed;
+
+        const followAndClosed = items.filter(
+          (row) => Number(row.customerFollowUp) === 1 && Number(row.closedService) === 1,
+        ).length;
+
+        const previousDaysMatchedSchedule = rows.filter((row) => {
+          const rowEmployeeCode = String(row.employeeCode || '');
+          const rowDate = String(row.logDate || '');
+          const rowSchedule = String(row.nextFollowSchedule || '');
+          return (
+            rowEmployeeCode === employeeCode
+            && rowDate < executionDate
+            && Number(row.nextFollowRequired) === 1
+            && rowSchedule === executionDate
+          );
+        }).length;
+
+        const currentRevenue = Number(
+          items.reduce((sum, row) => sum + (Number(row.personalRevenue) || 0), 0),
+        );
+        const timeline = revenueTimelineByEmployee.get(employeeCode) || [];
+        const currentIndex = timeline.findIndex((item) => item.date === executionDate);
+        const previousRevenue = currentIndex > 0 ? Number(timeline[currentIndex - 1]?.revenue || 0) : 0;
+
+        return {
+          stt: idx + 1,
+          executionDate: first.logDate || '',
+          unitName: first.unitName || '',
+          employeeCode: first.employeeCode || '',
+          employeeName: first.fullName || '',
+          totalCustomersOfDay: totalCustomers,
+          metrics: {
+            m19: safeDiv(totalClosedService, totalCustomers),
+            m20: safeDiv(totalOldReferral, totalCustomers),
+            m21: safeDiv(totalNoEarlyQuote, totalCustomers),
+            m22: totalConsultEnoughLayers,
+            m23: totalFollowRequired,
+            m24: totalPotentialWithScheduleWhenNotClosed,
+            m25: totalCustomerFollowUp,
+            m26: hangingCustomers,
+            m27: safeDiv(followAndClosed, totalCustomerFollowUp),
+            m28: safeDiv(totalPotentialWithScheduleWhenNotClosed, rowsClosed0.length),
+            m29: safeDiv(totalCustomerFollowUp, previousDaysMatchedSchedule),
+            m30: safeDiv(currentRevenue - previousRevenue, previousRevenue),
+            totals: {
+              totalOldReferral,
+              totalNoEarlyQuote,
+              totalConsultEnoughLayers,
+              totalClosedService,
+              totalFollowRequired,
+              totalPotentialWithScheduleWhenNotClosed,
+              totalCustomersCondition17Eq0,
+              totalCustomerFollowUp,
+              hangingCustomers,
+              followAndClosed,
+              previousDaysMatchedSchedule,
+              currentRevenue,
+              previousRevenue,
+            },
+          },
+        };
+      })
+      .sort((a, b) => {
+        const d = String(a.executionDate || '').localeCompare(String(b.executionDate || ''));
+        if (d !== 0) return d;
+        return String(a.employeeName || '').localeCompare(String(b.employeeName || ''));
+      })
+      .map((row, index) => ({ ...row, stt: index + 1 }));
+
+    return {
+      filters: {
+        fromDate: filters.fromDate || new Date().toISOString().slice(0, 10),
+        toDate: filters.toDate || filters.fromDate || new Date().toISOString().slice(0, 10),
+        unitId: filters.unitId || null,
+        cutoffHour,
+      },
+      rows: summaryRows,
+    };
+  }
+
+  async exportCoachingProvincialGd2SummaryFile(filters: { fromDate?: string; toDate?: string; unitId?: string }) {
+    const summary = await this.getCoachingProvincialGd2Summary(filters);
+    const percent = (v: number) => `${(Number(v || 0) * 100).toFixed(2)}%`;
+
+    const headerTitles = [
+      'STT',
+      'Ngày thực hiện',
+      'Đơn vị',
+      'Mã nhân viên',
+      'Tên nhân viên',
+      'Tổng số khách hàng ngày đó',
+      'Tỷ lệ chốt dịch vụ',
+      'Tỷ lệ khách cũ giới thiệu',
+      'Tỷ lệ cuộc không báo giá sớm',
+      'Tỷ lệ tư vấn đủ 3 lớp',
+      'Tỷ lệ theo đuổi có nội dung mới',
+      'Số KH tiềm năng có lịch follow-up',
+      'Số KH được theo đuổi trong ngày',
+      'Số KH bị treo không có bước tiếp theo',
+      'Tỷ lệ KH đồng ý sau follow-up',
+      'Tỷ lệ KH tiềm năng có lịch follow-up',
+      'Tỷ lệ theo đuổi đúng hẹn',
+      'Tỷ lệ Doanh thu cá nhân mới tăng thêm',
+    ];
+
+    const formulaRow = [
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '(A) = tong(chot dich vu) / tong(khach hang)',
+      '(B) = tong(khach cu gioi thieu) / tong(khach hang)',
+      '(C) = tong(khong bao gia som) / tong(khach hang)',
+      '(22) = tong(11)',
+      '(23) = tong(17)',
+      '(24) = tong((17) voi dieu kien (15)=0)',
+      '(25) = tong(9)',
+      '(26) = tong(6) voi dieu kien (17)=0 - tong(24)',
+      '(27) = tong(9) voi dieu kien (15)=1 / tong(9)',
+      '(28) = tong(24) / tong(15)=0',
+      '(29) = tong(9) / tong(17) cac ngay truoc = ngay hien tai',
+      '(Doanh thu) = (tong(16) - tong(16) ngay truoc) / tong(16) ngay truoc',
+    ];
+
+    const valueRows = (summary.rows || []).map((row: any) => [
+      Number(row.stt || 0),
+      row.executionDate || '',
+      row.unitName || '',
+      row.employeeCode || '',
+      row.employeeName || '',
+      Number(row.totalCustomersOfDay || 0),
+      percent(row?.metrics?.m19),
+      percent(row?.metrics?.m20),
+      percent(row?.metrics?.m21),
+      Number(row?.metrics?.m22 || 0),
+      Number(row?.metrics?.m23 || 0),
+      Number(row?.metrics?.m24 || 0),
+      Number(row?.metrics?.m25 || 0),
+      Number(row?.metrics?.m26 || 0),
+      percent(row?.metrics?.m27),
+      percent(row?.metrics?.m28),
+      percent(row?.metrics?.m29),
+      percent(row?.metrics?.m30),
+    ]);
+
+    const sheetData = [
+      [`Mốc cắt ngày thống kê: ${String(summary?.filters?.cutoffHour || 7).padStart(2, '0')}:00`],
+      headerTitles,
+      formulaRow,
+      ...valueRows,
+    ];
+
+    const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
+    worksheet['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 18 } }];
+    worksheet['!cols'] = [
+      { wch: 8 },
+      { wch: 16 },
+      { wch: 20 },
+      { wch: 16 },
+      { wch: 20 },
+      { wch: 18 },
+      { wch: 24 },
+      { wch: 24 },
+      { wch: 24 },
+      { wch: 22 },
+      { wch: 26 },
+      { wch: 30 },
+      { wch: 28 },
+      { wch: 30 },
+      { wch: 28 },
+      { wch: 34 },
+      { wch: 28 },
+      { wch: 24 },
+      { wch: 30 },
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Tong-hop-coaching-GD2');
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    const fromDate = summary.filters.fromDate;
+
+    return {
+      buffer,
+      fileName: `bao-cao-coaching-gd2-tong-hop-${fromDate}.xlsx`,
+    };
+  }
+
   async getCoachingProvincialSummary(filters: { fromDate?: string; toDate?: string; unitId?: string }) {
     const coachingData = await this.getCoachingProvincialData(filters);
     const rows = coachingData.rows || [];
