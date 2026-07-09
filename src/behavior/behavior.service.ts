@@ -2874,14 +2874,14 @@ export class BehaviorService implements OnModuleInit {
         );
         const totalClosedService = items.reduce((sum, row) => sum + (Number(row.closedService) || 0), 0);
 
-        const rowsClosed0 = items.filter((row) => Number(row.closedService) === 0);
+        const rowsWithCustomer = items.filter((row) => String(row.customerName || '').trim() !== '');
+        const rowsClosed0 = rowsWithCustomer.filter((row) => Number(row.closedService) === 0);
         const totalFollowRequired = items.reduce((sum, row) => sum + (Number(row.nextFollowRequired) || 0), 0);
-        const totalPotentialWithScheduleWhenNotClosed = rowsClosed0.reduce(
-          (sum, row) => sum + (Number(row.nextFollowRequired) || 0),
-          0,
-        );
-        const totalCustomersCondition17Eq0 = items.filter(
-          (row) => String(row.customerName || '').trim() !== '' && Number(row.nextFollowRequired) === 0,
+        const totalPotentialWithScheduleWhenNotClosed = rowsClosed0.filter(
+          (row) => Number(row.nextFollowRequired) === 1,
+        ).length;
+        const totalCustomersCondition17Eq0 = rowsWithCustomer.filter(
+          (row) => Number(row.nextFollowRequired) === 0,
         ).length;
         const hangingCustomers = totalCustomersCondition17Eq0 - totalPotentialWithScheduleWhenNotClosed;
 
