@@ -9,6 +9,7 @@ import { Role } from 'src/common/enums/role.enum';
 import { TelegramService } from 'src/telegram/telegram.service';
 import { UsersService } from 'src/users/users.service';
 import { validateActionTimeForDate } from '../common/utils/time-validator.util';
+import { BusinessTimeUtil } from 'src/common/utils/business-time.util';
 import { Repository } from 'typeorm';
 import { CreateJournalDto } from './dto/create-journal.dto';
 import { SubmitAwarenessDto } from './dto/submit-awareness.dto';
@@ -26,7 +27,9 @@ export class JournalsService {
   ) {}
 
   private normalizeReportDate(reportDate?: string) {
-    return reportDate ? reportDate.slice(0, 10) : new Date().toISOString().slice(0, 10);
+    return reportDate
+      ? reportDate.slice(0, 10)
+      : BusinessTimeUtil.getEffectiveBusinessDate().format('YYYY-MM-DD');
   }
 
   private parseStandardsFromText(text: string) {

@@ -493,7 +493,7 @@ export class BehaviorService implements OnModuleInit {
   async saveDailyCoachingCustomer(currentUser: any, dto: SaveDailyCoachingCustomerDto) {
     const logDate = this.resolveLogDate(dto.logDate);
     const coachingForm = this.normalizeCoachingForm(dto.coachingForm);
-    validateActionTimeForDate(logDate, 'Nhập form coaching khách hàng');
+    validateActionTimeForDate(logDate, 'Nhập form coaching khách hàng', false, currentUser.role);
     const personalRevenue = this.normalizePersonalRevenue(dto.personalRevenue);
     const consultEnoughLayers = Number(dto.consultEnoughLayers || 0);
     const consultSolutionMatchingNeed = Number(dto.consultSolutionMatchingNeed || 0);
@@ -573,7 +573,7 @@ export class BehaviorService implements OnModuleInit {
 
     const date = this.resolveLogDate(logDate);
     const normalizedCoachingForm = this.normalizeCoachingForm(coachingForm);
-    validateActionTimeForDate(date, 'Import form coaching khách hàng');
+    validateActionTimeForDate(date, 'Import form coaching khách hàng', false, currentUser.role);
     const workbook = XLSX.read(file.buffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     if (!sheetName) {
@@ -1531,7 +1531,7 @@ export class BehaviorService implements OnModuleInit {
   }
 
   private async getCurrentWeek() {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = BusinessTimeUtil.getEffectiveBusinessDate().format('YYYY-MM-DD');
     const week = await this.weeklyConfigsRepository
       .createQueryBuilder('w')
       .where(':today BETWEEN w.startDate AND w.endDate', { today })
@@ -2362,7 +2362,8 @@ export class BehaviorService implements OnModuleInit {
       return raw;
     };
 
-    const fromDate = filters.fromDate || new Date().toISOString().slice(0, 10);
+    const fromDate =
+      filters.fromDate || BusinessTimeUtil.getEffectiveBusinessDate().format('YYYY-MM-DD');
     const toDate = filters.toDate || fromDate;
     const cutoffHour = await this.getCoachingReportCutoffHour();
 
@@ -2426,7 +2427,8 @@ export class BehaviorService implements OnModuleInit {
   }
 
   async exportCoachingProvincialFile(filters: { fromDate?: string; toDate?: string; unitId?: string }) {
-    const fromDate = filters.fromDate || new Date().toISOString().slice(0, 10);
+    const fromDate =
+      filters.fromDate || BusinessTimeUtil.getEffectiveBusinessDate().format('YYYY-MM-DD');
     const coachingData = await this.getCoachingProvincialData(filters);
     const rows = coachingData.rows || [];
     const cutoffHour = Number(coachingData.cutoffHour || 7);
@@ -2576,7 +2578,8 @@ export class BehaviorService implements OnModuleInit {
       return raw;
     };
 
-    const fromDate = filters.fromDate || new Date().toISOString().slice(0, 10);
+    const fromDate =
+      filters.fromDate || BusinessTimeUtil.getEffectiveBusinessDate().format('YYYY-MM-DD');
     const toDate = filters.toDate || fromDate;
     const cutoffHour = await this.getCoachingReportCutoffHour();
 
@@ -2646,7 +2649,8 @@ export class BehaviorService implements OnModuleInit {
   }
 
   async exportCoachingProvincialGd2File(filters: { fromDate?: string; toDate?: string; unitId?: string }) {
-    const fromDate = filters.fromDate || new Date().toISOString().slice(0, 10);
+    const fromDate =
+      filters.fromDate || BusinessTimeUtil.getEffectiveBusinessDate().format('YYYY-MM-DD');
     const coachingData = await this.getCoachingProvincialGd2Data(filters);
     const rows = coachingData.rows || [];
     const cutoffHour = Number(coachingData.cutoffHour || 7);
@@ -2806,7 +2810,8 @@ export class BehaviorService implements OnModuleInit {
     const rows = coachingData.rows || [];
     const cutoffHour = Number(coachingData.cutoffHour || 7);
     const safeDiv = (a: number, b: number) => (b > 0 ? Number((a / b).toFixed(4)) : 0);
-    const fromDate = filters.fromDate || new Date().toISOString().slice(0, 10);
+    const fromDate =
+      filters.fromDate || BusinessTimeUtil.getEffectiveBusinessDate().format('YYYY-MM-DD');
     const toDate = filters.toDate || fromDate;
 
     const historicalScheduleQb = this.dailyCoachingCustomersRepository
@@ -3174,8 +3179,12 @@ export class BehaviorService implements OnModuleInit {
 
     return {
       filters: {
-        fromDate: filters.fromDate || new Date().toISOString().slice(0, 10),
-        toDate: filters.toDate || filters.fromDate || new Date().toISOString().slice(0, 10),
+        fromDate:
+          filters.fromDate || BusinessTimeUtil.getEffectiveBusinessDate().format('YYYY-MM-DD'),
+        toDate:
+          filters.toDate ||
+          filters.fromDate ||
+          BusinessTimeUtil.getEffectiveBusinessDate().format('YYYY-MM-DD'),
         unitId: filters.unitId || null,
         cutoffHour,
       },
@@ -4209,7 +4218,7 @@ export class BehaviorService implements OnModuleInit {
   }
 
   async getJournalSubmissionsStats(currentUser: any, date: string) {
-    const targetDate = date || new Date().toISOString().slice(0, 10);
+    const targetDate = date || BusinessTimeUtil.getEffectiveBusinessDate().format('YYYY-MM-DD');
 
     let usersQuery = this.usersRepository.createQueryBuilder('u')
       .leftJoinAndSelect('u.unit', 'unit')
