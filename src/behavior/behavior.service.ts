@@ -1338,7 +1338,10 @@ export class BehaviorService implements OnModuleInit {
   }
 
   private resolveLogDate(logDate?: string): string {
-    return logDate || new Date().toISOString().slice(0, 10);
+    if (logDate) {
+      return String(logDate).slice(0, 10);
+    }
+    return BusinessTimeUtil.getEffectiveBusinessDate().format('YYYY-MM-DD');
   }
 
   private async submitForm1(userId: string, dto: SubmitLogDto) {
