@@ -249,6 +249,37 @@ export class ManagerDailyScoresService {
     return 0;
   }
 
+  // Thang điểm thi đua coaching (khác với thang điểm TNC hàng ngày)
+  private calculateCoachingServicesScore(count: number): number {
+    if (count >= 3) return 4;
+    if (count >= 2) return 3;
+    if (count >= 1) return 2;
+    return 0;
+  }
+
+  private calculateCoachingPtmPackagesScore(count: number): number {
+    if (count >= 2) return 2;
+    if (count >= 1) return 1;
+    return 0;
+  }
+
+  private calculateCoachingCloseRateScore(closeRate: number): number {
+    if (closeRate >= 0.4) return 3;
+    if (closeRate >= 0.3) return 2;
+    if (closeRate >= 0.2) return 1;
+    return 0;
+  }
+
+  private calculateCoachingRevenueScore(revenueThousand: number): number {
+    if (revenueThousand >= 1000) return 10;
+    if (revenueThousand >= 800)  return 8;
+    if (revenueThousand >= 600)  return 6;
+    if (revenueThousand >= 400)  return 4;
+    if (revenueThousand >= 200)  return 2;
+    if (revenueThousand >= 100)  return 1;
+    return 0;
+  }
+
   private calculateDailyChecklistScore(submittedJournalCount: number) {
     if (submittedJournalCount >= 4) {
       return 7;
@@ -2286,7 +2317,7 @@ export class ManagerDailyScoresService {
       employeeCoachingDays.set(empId, (employeeCoachingDays.get(empId) || 0) + 1);
     });
 
-    // 3. Lấy dữ liệu Import (Mục 3, 4, 5)
+    // 3. Lấy dữ liệu Import coaching (Mục 3, 5)
     const qb = this.coachingCompetitionImportsRepository.createQueryBuilder('cci')
       .leftJoinAndSelect('cci.employee', 'employee')
       .leftJoinAndSelect('cci.unit', 'unit')
@@ -2303,11 +2334,6 @@ export class ManagerDailyScoresService {
       item31Sum: number;
       item32Sum: number;
       item33Sum: number;
-      item41Sum: number;
-      item42Sum: number;
-      item43Sum: number;
-      item44Sum: number;
-      item45Sum: number;
       item51Sum: number;
       count: number;
     }>();
@@ -2316,25 +2342,93 @@ export class ManagerDailyScoresService {
         item31Sum: 0,
         item32Sum: 0,
         item33Sum: 0,
-        item41Sum: 0,
-        item42Sum: 0,
-        item43Sum: 0,
-        item44Sum: 0,
-        item45Sum: 0,
         item51Sum: 0,
         count: 0,
       };
       empData.item31Sum += Number(r.item31Score || 0);
       empData.item32Sum += Number(r.item32Score || 0);
       empData.item33Sum += Number(r.item33Score || 0);
-      empData.item41Sum += Number(r.item41Score || 0);
-      empData.item42Sum += Number(r.item42Score || 0);
-      empData.item43Sum += Number(r.item43Score || 0);
-      empData.item44Sum += Number(r.item44Score || 0);
-      empData.item45Sum += Number(r.item45Score || 0);
       empData.item51Sum += Number(r.item51Score || 0);
       empData.count++;
       importByEmployee.set(r.employeeId, empData);
+    });
+
+    // 3b. Lấy dữ liệu ĐHKD để tính Mục 4.1, 4.2, 4.4
+    const dhkdQb = this.importsRepository.createQueryBuilder('imp')
+      .where('imp.scoreDate >= :fromDate', { fromDate })
+      .andWhere('imp.scoreDate <= :toDate', { toDate });
+
+    if (unitId) {
+      dhkdQb.andWhere('imp.unitId = :unitId', { unitId });
+    }
+
+    const dhkdRecords = await dhkdQb.getMany();
+    const dhkdMap = new Map(
+      dhkdRecords.map((item) => [
+        this.buildEmployeeDateKey(item.employeeId, this.toDateKey(item.scoreDate || '')),
+        item,
+      ]),
+    );
+
+    // Tính điểm từng ngày theo thang điểm thi đua coaching rồi cộng dồn theo nhân viên
+    const dhkdByEmployee = new Map<string, { item41Sum: number; item42Sum: number; item44Sum: number }>();
+    dhkdRecords.forEach((rec) => {
+      const services = this.normalizeImportedMetric(rec.successfulServices);
+      const packages = this.normalizeImportedMetric(rec.highPtmPackages);
+      const revenue  = this.normalizeImportedMetric(rec.personalRevenueThousand);
+
+      const s41 = this.calculateCoachingServicesScore(services);
+      const s42 = this.calculateCoachingPtmPackagesScore(packages);
+      const s44 = this.calculateCoachingRevenueScore(revenue);
+
+      const cur = dhkdByEmployee.get(rec.employeeId) || { item41Sum: 0, item42Sum: 0, item44Sum: 0 };
+      cur.item41Sum += s41;
+      cur.item42Sum += s42;
+      cur.item44Sum += s44;
+      dhkdByEmployee.set(rec.employeeId, cur);
+    });
+
+    // 3c. Lấy dữ liệu Phiếu coaching/chấm điểm nhân viên nhập để tính Mục 4.3 và 4.5
+    const sheetsQb = this.sheetsRepository.createQueryBuilder('sheet')
+      .leftJoinAndSelect('sheet.items', 'item')
+      .leftJoinAndSelect('item.criterion', 'criterion')
+      .leftJoinAndSelect('sheet.unit', 'unit')
+      .where('sheet.scoreDate >= :fromDate', { fromDate })
+      .andWhere('sheet.scoreDate <= :toDate', { toDate });
+
+    if (unitId) {
+      sheetsQb.andWhere('sheet.unitId = :unitId', { unitId });
+    }
+
+    const sheets = await sheetsQb.getMany();
+    const sheetScoreByEmployee = new Map<string, { item43Sum: number; item45Sum: number }>();
+
+    sheets.forEach((sheet) => {
+      const scoreDateKey = this.toDateKey(sheet.scoreDate || '');
+      const employeeDateKey = this.buildEmployeeDateKey(sheet.employeeId, scoreDateKey);
+      const rec = dhkdMap.get(employeeDateKey);
+      const itemByCode = new Map(
+        (sheet.items || [])
+          .filter((item) => !!item.criterion?.itemCode)
+          .map((item) => [String(item.criterion?.itemCode || ''), item]),
+      );
+
+      const isCustomerCareEmployee = this.isCustomerCareUnit(sheet.unit);
+      const services = this.normalizeImportedMetric(rec?.successfulServices);
+      const careCalls = this.normalizeImportedMetric(rec?.successfulCareCalls);
+      const customersContacted = this.safeNumericInput(itemByCode.get('BEHAVIOR_CUSTOMERS_CONTACTED')?.employeeNote);
+      const denominator = isCustomerCareEmployee ? careCalls : customersContacted;
+      const closeRate = denominator > 0 ? services / denominator : 0;
+      const s43 = this.calculateCoachingCloseRateScore(closeRate);
+
+      const returningItem = itemByCode.get('PERFORMANCE_RETURNING_REFERRED');
+      const returningScore = this.safeNumericInput(returningItem?.selfScore || returningItem?.score || 0);
+      const s45 = returningScore > 0 ? 1 : 0;
+
+      const cur = sheetScoreByEmployee.get(sheet.employeeId) || { item43Sum: 0, item45Sum: 0 };
+      cur.item43Sum += s43;
+      cur.item45Sum += s45;
+      sheetScoreByEmployee.set(sheet.employeeId, cur);
     });
 
     // 4. Kết hợp dữ liệu
@@ -2344,7 +2438,9 @@ export class ManagerDailyScoresService {
     tncData.learningRows.forEach((lr) => {
       const empId = lr.employeeId;
       const br = tncData.behaviorRows.find(b => b.employeeId === empId);
-      const imp = importByEmployee.get(empId);
+      const imp  = importByEmployee.get(empId);
+      const dhkd = dhkdByEmployee.get(empId);
+      const sheetScore = sheetScoreByEmployee.get(empId);
 
       const item1Score = Number(lr.averageScore || 0);
       const item2Score = Number(br?.averageScore || 0);
@@ -2352,15 +2448,17 @@ export class ManagerDailyScoresService {
       const coachingDays = employeeCoachingDays.get(empId) || 0;
       const item2Item7Score = validDayCount > 0 ? (coachingDays * 9) / validDayCount : 0;
 
-      const item31Score = imp && validDayCount > 0 ? imp.item31Sum / validDayCount : 0;
-      const item32Score = imp && validDayCount > 0 ? imp.item32Sum / validDayCount : 0;
-      const item33Score = imp && validDayCount > 0 ? imp.item33Sum / validDayCount : 0;
-      const item41Score = imp && validDayCount > 0 ? imp.item41Sum / validDayCount : 0;
-      const item42Score = imp && validDayCount > 0 ? imp.item42Sum / validDayCount : 0;
-      const item43Score = imp && validDayCount > 0 ? imp.item43Sum / validDayCount : 0;
-      const item44Score = imp && validDayCount > 0 ? imp.item44Sum / validDayCount : 0;
-      const item45Score = imp && validDayCount > 0 ? imp.item45Sum / validDayCount : 0;
-      const item51Score = imp && validDayCount > 0 ? imp.item51Sum / validDayCount : 0;
+      const item31Score = imp  && validDayCount > 0 ? imp.item31Sum  / validDayCount : 0;
+      const item32Score = imp  && validDayCount > 0 ? imp.item32Sum  / validDayCount : 0;
+      const item33Score = imp  && validDayCount > 0 ? imp.item33Sum  / validDayCount : 0;
+      // 4.1, 4.2, 4.4: tự động tính từ dữ liệu Import ĐHKD
+      const item41Score = dhkd && validDayCount > 0 ? dhkd.item41Sum / validDayCount : 0;
+      const item42Score = dhkd && validDayCount > 0 ? dhkd.item42Sum / validDayCount : 0;
+      // 4.3, 4.5: tự động tính từ Phiếu coaching/chấm điểm nhân viên nhập
+      const item43Score = sheetScore && validDayCount > 0 ? sheetScore.item43Sum / validDayCount : 0;
+      const item44Score = dhkd && validDayCount > 0 ? dhkd.item44Sum / validDayCount : 0;
+      const item45Score = sheetScore && validDayCount > 0 ? sheetScore.item45Sum / validDayCount : 0;
+      const item51Score = imp  && validDayCount > 0 ? imp.item51Sum  / validDayCount : 0;
       const item3Score = item31Score + item32Score + item33Score;
       const item4Score = item41Score + item42Score + item43Score + item44Score + item45Score;
       const item5Score = item51Score;
